@@ -50,7 +50,7 @@ ai-execute-extension/
 │   ├── options-bindings.test.js ← страница настроек: биндинги UI, импорт/экспорт, профили, промпт (54)
 │   ├── panel-autopilot.test.js ← панель: shadow DOM, isTrusted, retry автопилота (38)
 │   ├── failure-explain.test.js ← перевод ошибок в понятный текст (31)
-│   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов (122)
+│   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов, сайты (139)
 │   ├── features.test.js       ← палитра, свёрнутый вывод, журнал, секреты, статистика, XP (123)
 │   ├── bridge.test.js         ← background.js и popup.js: сервер, токен, авто-синхронизация (48)
 │   ├── mcp.test.js            ← MCP: маршруты, токен, opt-in, безопасность, UI, execute-mcp, отчёт (117)
@@ -250,7 +250,7 @@ python server.py --no-mcp   # не спрашивать и не включать
 ### Шаг 3. Проверь связку
 
 1. Кликни по иконке расширения → должно быть **✅ Сервер на связи**
-2. Открой https://chatgpt.com, https://claude.ai или https://arena.ai — справа внизу должен гореть зелёный бейдж **⚡ exec: online** (на Арене работает во всех режимах: Battle, Side-by-Side и Direct)
+2. Открой https://chatgpt.com, https://claude.ai, https://arena.ai, https://alice.yandex.ru или https://giga.chat — справа внизу должен гореть зелёный бейдж **⚡ exec: online** (на Арене работает во всех режимах: Battle, Side-by-Side и Direct)
 
 ### Шаг 4. Дай ИИ специальный промпт
 
@@ -547,7 +547,7 @@ powershell -ExecutionPolicy Bypass -File tools/shot.ps1   # → tools/shots/*.pn
 ```bash
 cd tests
 npm install          # один раз (jsdom)
-npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (731 проверка)
+npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (748 проверок)
 npm run test:server  # Python: сервер (82 проверки)
 npm run test:all     # всё вместе
 ```
@@ -570,7 +570,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.3
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.4
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

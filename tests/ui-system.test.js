@@ -231,6 +231,26 @@ check('ни одна палитра/радиус не задан только ч
   ['none', 'sharp', 'round', 'pill'].every((r) =>
     new RegExp('\\[data-ax-radius="' + r + '"\\][^}]*\\{').test(ui)));
 
+// Регрессия: новые сайты должны быть в ОБОИХ манифестах и в обеих секциях
+// (content_scripts + web_accessible_resources) — иначе контент-скрипт просто
+// не запустится на сайте, а web_accessible_resources нужен для вставки картинок.
+console.log('\n[8] Поддержка сайтов: Алиса и GigaChat');
+const NEW_SITES = [
+  ['alice.yandex.ru', '*://alice.yandex.ru/*'],
+  ['*.alice.yandex.ru', '*://*.alice.yandex.ru/*'],
+  ['giga.chat', '*://giga.chat/*'],
+  ['*.giga.chat', '*://*.giga.chat/*'],
+];
+for (const [label, mf] of [['manifest.json', manifest], ['manifest.chrome.json', manifestChrome]]) {
+  const cs = mf.content_scripts[0].matches;
+  const war = (mf.web_accessible_resources && mf.web_accessible_resources[0] && mf.web_accessible_resources[0].matches) || [];
+  for (const [site, pat] of NEW_SITES) {
+    check(label + ': content_scripts содержит ' + site, cs.includes(pat), cs);
+    check(label + ': web_accessible содержит ' + site, war.includes(pat), war);
+  }
+}
+check('ax-core: селектор поля ввода Алисы', /AliceInput-Textarea/.test(coreJs));
+
 console.log('\n======================================================');
 console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
 if (failed) {

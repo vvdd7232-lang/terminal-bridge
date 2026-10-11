@@ -185,6 +185,7 @@
     { site: 'Claude',          sel: 'div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="plaintext-only"]' },
     { site: 'Gemini',          sel: 'rich-textarea textarea' },
     { site: 'Copilot',         sel: 'textarea[data-testid="user-input"], #user-input-textbox' },
+    { site: 'Alice',          sel: 'textarea.AliceInput-Textarea' },
     { site: 'contenteditable', sel: 'div[contenteditable="true"][role="textbox"], div[contenteditable="plaintext-only"][role="textbox"]' },
     { site: 'textarea',        sel: 'textarea[placeholder]' },
     { site: 'contenteditable', sel: 'div[contenteditable="true"], div[contenteditable="plaintext-only"]' },
