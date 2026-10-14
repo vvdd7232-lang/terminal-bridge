@@ -17,7 +17,6 @@ with open(os.path.join(ROOT, 'extension', 'manifest.json'), 'r', encoding='utf-8
     VERSION = json.load(f)['version']
 
 TAG = f"v{VERSION}"
-NAME = f"{TAG} — UX Agent Mode (Abort, Virtualenv, Fix Prompt)"
 
 
 def get_token():
@@ -71,9 +70,13 @@ def publish():
         notes_path = os.path.join(ROOT, 'docs', 'releases', f"{TAG}.md")
 
     body_text = f"Релиз {TAG}"
+    release_name = TAG
     if os.path.isfile(notes_path):
         with open(notes_path, 'r', encoding='utf-8') as f:
             body_text = f.read()
+        first_line = body_text.strip().split('\n')[0].lstrip('#').strip()
+        if first_line:
+            release_name = first_line
 
     # Push git commits and tags if possible
     try:
@@ -91,14 +94,14 @@ def publish():
         existing = api_request(f"https://api.github.com/repos/{REPO}/releases/tags/{TAG}", token=token)
         release_id = existing.get('id')
         print(f"==> Release {TAG} already exists (id {release_id}), updating...")
-        patch_payload = {'name': NAME, 'body': body_text}
+        patch_payload = {'name': release_name, 'body': body_text}
         api_request(f"https://api.github.com/repos/{REPO}/releases/{release_id}", method='PATCH', data=patch_payload, token=token)
     except urllib.error.HTTPError as e:
         if e.code == 404:
             print(f"==> Creating new release {TAG}...")
             post_payload = {
                 'tag_name': TAG,
-                'name': NAME,
+                'name': release_name,
                 'body': body_text,
                 'draft': False,
                 'prerelease': False,
