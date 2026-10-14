@@ -225,6 +225,9 @@
       // изменения настроек — обновляем панели
       if (!changes) { applyAppearanceToPanels(); applyPendingAuto(); return; }
       if (APPEARANCE_KEYS.some((k) => k in changes)) applyAppearanceToPanels();
+      if (changes.autoExecute && changes.autoExecute.newValue === false) {
+        if (typeof AX.cancelAllAuto === 'function') AX.cancelAllAuto('Автопилот отключён в настройках');
+      }
       if ((changes.autoExecute && changes.autoExecute.newValue === true) ||
           (changes.autoWeak && changes.autoWeak.newValue === true) ||
           (changes.maxAutoRuns && (changes.maxAutoRuns.newValue || 0) !== (changes.maxAutoRuns.oldValue || 0))) applyPendingAuto();

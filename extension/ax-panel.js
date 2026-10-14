@@ -268,6 +268,21 @@
   }
   AX.dequeueAuto = dequeueAuto;
 
+  AX.cancelAllAuto = function (msg) {
+    const text = msg || 'Автовыполнение выключено в настройках — нажмите ▶ вручную.';
+    const queue = [...AX.autoQueue];
+    AX.autoQueue.length = 0;
+    if (AX.currentAuto) {
+      try { if (AX.currentAuto.cancel) AX.currentAuto.cancel(text); } catch (e) { /* ignore */ }
+      AX.currentAuto = null;
+    }
+    AX.autoActive = false;
+    for (const h of queue) {
+      try { if (h.cancel) h.cancel(text); } catch (e) { /* ignore */ }
+    }
+    updateQueueStatuses();
+  };
+
   function enqueueAuto(handle) {
     if (!AX.autoQueue.includes(handle)) AX.autoQueue.push(handle);
     updateQueueStatuses();
@@ -697,7 +712,14 @@
           danger: mcpHard ? 'hard' : null,
           note: mcpHard ? 'MCP-инструмент исполняет код или меняет проект — подтверди, что это нужно' : null,
         });
-        if (!res || !res.ok) { fin(); return; }
+        if (!res || !res.ok) {
+          stopAutoTimer();
+          autoHandle.finish();
+          status.className = 'ax-exec-status';
+          status.textContent = 'Действие отменено пользователем — нажмите ▶ для запуска.';
+          fin();
+          return;
+        }
         runRunner = res.runner || runRunner;
         if (runRunner !== beforeModal) { try { AX.memSet(cmd, runRunner); } catch (e) { /* ignore */ } }
         try { runnerSelect.value = runRunner; } catch (e) { /* ignore */ }
@@ -849,8 +871,8 @@
         return;
       }
       stopAutoTimer();
-      const handle = autoHandle;
-      doRun(null, false, () => { if (handle) dequeueAuto(handle); });
+      dequeueAuto(autoHandle);
+      doRun(null, false);
     };
 
     // ---------- автозапуск этой панели ----------
@@ -914,28 +936,26 @@
       if (autoCancelled || autoHandle.done) { finQ(); return; }
       if (!AX.settings.autoExecute) {
         AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=auto-disabled (выключено в настройках)\n');
-        status.className = 'ax-exec-status';
-        status.textContent = 'Автовыполнение выключено в настройках — нажмите ▶ вручную.';
+        stopAutoTimer('Автовыполнение выключено в настройках — нажмите ▶ вручную.');
         finQ(); return;
       }
       if (flags.weak && !AX.settings.autoWeak) {
         AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=weak-disabled (блок EXECUTE?, автозапуск выключен)\n');
-        status.className = 'ax-exec-status';
-        status.textContent = MSG_WEAK_AUTO_OFF;
+        stopAutoTimer(MSG_WEAK_AUTO_OFF);
+        autoHandle.finish();
         finQ(); return;
       }
       if (AX.loopBlocked) {
         AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=loop-guard (зацикливание, автопилот остановлен)\n');
-        status.className = 'ax-exec-status';
-        status.textContent = MSG_LOOP_OFF;
+        stopAutoTimer(MSG_LOOP_OFF);
         finQ(); return;
       }
       phase2 = true;
       const runLim = +AX.settings.maxAutoRuns || 0;
       if (runLim > 0 && AX.autoRunCount >= runLim) {
         AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=tab-limit (' + runLim + ')\n');
-        status.className = 'ax-exec-status';
-        status.textContent = '🛑 Лимит автозапусков (' + runLim + ') на вкладку исчерпан — дальше вручную.';
+        stopAutoTimer('🛑 Лимит автозапусков (' + runLim + ') на вкладку исчерпан — дальше вручную.');
+        autoHandle.finish();
         finQ(); return;
       }
       status.className = 'ax-exec-status ax-running';
@@ -945,19 +965,23 @@
         try {
           if (autoCancelled) { finQ(); return; }
           const cmd = (settled || '').trim();
-          if (!cmd) { stopAutoTimer('Пустая команда — пропуск.'); finQ(); return; }
+          if (!cmd) {
+            stopAutoTimer('Пустая команда — пропуск.');
+            autoHandle.finish();
+            finQ(); return;
+          }
           maybeResniff(cmd);
           if (D.isHardDangerous(cmd)) {
             AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
-            stopAutoTimer();
-            status.className = 'ax-exec-status ax-err';
-            status.textContent = '⛔ Опасная команда: только вручную кнопкой ▶.';
+            stopAutoTimer('⛔ Опасная команда: только вручную кнопкой ▶.');
+            autoHandle.finish();
             finQ(); return;
           }
           const dup = AX.dupAge(cmd, panelRunner());
           if (dup > 0) {
             AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=duplicate age=' + dup + 's\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
             stopAutoTimer('⏭ Дубль: такая команда уже выполнялась ' + dup + 'с назад — пропуск (жми ▶ для повтора).');
+            autoHandle.finish();
             finQ(); return;
           }
           if (!bypassChecks) {
@@ -965,11 +989,13 @@
             if (hist > 0) {
               AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
               stopAutoTimer('⏭ Уже выполнялась раньше (' + AX.fmtAge(hist) + ' назад) — пропуск (жми ▶ для повтора).');
+              autoHandle.finish();
               finQ(); return;
             }
             if (!flags.forced && Date.now() - AX.AX_BOOT < AX.BOOT_GRACE_MS && createdCmd && cmd === createdCmd) {
               AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
               stopAutoTimer('⏭ Блок уже был на странице при загрузке — автозапуск пропущен (жми ▶).');
+              autoHandle.finish();
               finQ(); return;
             }
           }
@@ -981,6 +1007,7 @@
             AX.loopBlocked = true;
             AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=loop-guard (' + loopCheck.reason + ')\n');
             stopAutoTimer('🛑 Зацикливание ИИ (' + loopCheck.reason + ') — автопилот остановлен, дальше вручную.');
+            autoHandle.finish();
             AX.toast('🛑 Зацикливание ИИ — ' + loopCheck.reason);
             finQ(); return;
           }
@@ -1031,17 +1058,22 @@
     const autoHandle = {
       el: panel, started: false, done: false, claimed: false,
       finish() { this.done = true; },
+      cancel(msg) {
+        stopAutoTimer(msg);
+        this.finish();
+      },
       start() { startAuto(); },
       showQueued(i) { showQueued(i); },
       runNow(cb) { runAutoNow(cb); },
-      /* Возобновление автопилота. Раньше `done` не сбрасывался, поэтому
-       * startAuto() выходил на первой строке и повторный запуск (включение
-       * автопилота после выполнения, повторный рендер блока) не работал. */
+      /* Возобновление автопилота. */
       retry() {
         if (this.done) {
           const wasQueued = AX.autoQueue.indexOf(this) !== -1 || AX.currentAuto === this;
           if (wasQueued) AX.dequeueAuto(this);
           this.done = false;
+        } else {
+          const ix = AX.autoQueue.indexOf(this);
+          if (ix >= 0) AX.autoQueue.splice(ix, 1);
         }
         this.claimed = false;
         this.started = false;
@@ -1083,10 +1115,8 @@
           q.remove();
           AX.loopBlocked = false;
           AX.lastAutoCommands = [];
-          autoHandle.started = false;
-          autoCancelled = false;
           forceAutoOnce = true;
-          startAuto();
+          autoHandle.retry();
         } catch (e) { AX.toast('Не удалось сохранить настройку'); }
       };
       panel.$('.ax-exec-header').appendChild(q);

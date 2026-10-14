@@ -49,6 +49,7 @@ function makeEnv({ autoExecute = false, requireConfirm = true, runError = false 
     local: { authToken: '' },
   };
   const runs = [];
+  const storageListeners = [];
   const area = (name) => ({
     get: (keys, cb) => {
       const list = Array.isArray(keys) ? keys : Object.keys(keys || {});
@@ -57,7 +58,14 @@ function makeEnv({ autoExecute = false, requireConfirm = true, runError = false 
       if (cb) { cb(out); return undefined; }
       return Promise.resolve(out);
     },
-    set: (items, cb) => { Object.assign(store[name], items); if (cb) cb(); return Promise.resolve(); },
+    set: (items, cb) => {
+      const changes = {};
+      for (const k in items) changes[k] = { oldValue: store[name][k], newValue: items[k] };
+      Object.assign(store[name], items);
+      storageListeners.forEach((fn) => { try { fn(changes, name); } catch (e) { /* ignore */ } });
+      if (cb) cb();
+      return Promise.resolve();
+    },
     remove: (keys, cb) => {
       for (const k of (Array.isArray(keys) ? keys : [keys])) delete store[name][k];
       if (cb) cb();
@@ -65,7 +73,13 @@ function makeEnv({ autoExecute = false, requireConfirm = true, runError = false 
     },
   });
   const chromeStub = {
-    storage: { sync: area('sync'), local: area('local'), onChanged: { addListener() {} } },
+    storage: {
+      sync: area('sync'),
+      local: area('local'),
+      onChanged: {
+        addListener(fn) { storageListeners.push(fn); }
+      }
+    },
     runtime: {
       id: 'test-extension-id',
       getManifest: () => ({ version: '2.6.1' }),
@@ -106,7 +120,7 @@ function makeEnv({ autoExecute = false, requireConfirm = true, runError = false 
   for (const f of AX_FILES) {
     w.eval(fs.readFileSync(path.join(EXT_DIR, f), 'utf8'));
   }
-  return { dom, w, store, runs };
+  return { dom, w, store, runs, chromeStub };
 }
 
 async function run() {
@@ -279,6 +293,107 @@ async function run() {
   envK.w.AX.settings.catMode = false;
   envK.w.AX.applyPanelAppearance(panelK);
   check('при catMode=false атрибут снимается', panelK.getAttribute('data-ax-cat') === null);
+
+  console.log('\n[11] AX.cancelAllAuto() останавливает активный таймер и очищает очередь');
+  const env11 = makeEnv({ autoExecute: true });
+  await sleep(60);
+  const chat11 = env11.w.document.getElementById('chat');
+  const pre11 = env11.w.document.createElement('pre');
+  pre11.setAttribute('data-language', 'execute');
+  const code11 = env11.w.document.createElement('code');
+  code11.textContent = 'echo queued_block';
+  pre11.appendChild(code11);
+  chat11.appendChild(pre11);
+  env11.w.AX.scan(chat11, true);
+  await sleep(30);
+  check('две панели созданы', env11.w.AX.livePanels.length === 2);
+  env11.w.AX.cancelAllAuto('Автопилот остановлен тестом');
+  check('AX.autoQueue пуста после cancelAllAuto', env11.w.AX.autoQueue.length === 0);
+  check('AX.currentAuto сброшен', env11.w.AX.currentAuto === null);
+  check('AX.autoActive === false', env11.w.AX.autoActive === false);
+  const status11a = env11.w.AX.livePanels[0].el.$('.ax-exec-status');
+  check('статус первой панели обновлен текстом отмены',
+    status11a.textContent.includes('Автопилот остановлен тестом'), status11a.textContent);
+  check('кнопка отмены авто удалена у первой панели',
+    env11.w.AX.livePanels[0].el.$('.ax-btn-cancel-auto') === null);
+  await sleep(60);
+  check('команды не отправлялись на сервер', env11.runs.length === 0);
+
+  console.log('\n[12] Ручной запуск (▶) стоящей в очереди панели немедленно извлекает её из очереди');
+  const env12 = makeEnv({ autoExecute: true, requireConfirm: false });
+  await sleep(60);
+  const chat12 = env12.w.document.getElementById('chat');
+  const pre12 = env12.w.document.createElement('pre');
+  pre12.setAttribute('data-language', 'execute');
+  const code12 = env12.w.document.createElement('code');
+  code12.textContent = 'echo manual_queued';
+  pre12.appendChild(code12);
+  chat12.appendChild(pre12);
+  env12.w.AX.scan(chat12, true);
+  await sleep(30);
+  const hQueued = env12.w.AX.livePanels[1];
+  check('вторая панель стоит в AX.autoQueue', env12.w.AX.autoQueue.includes(hQueued));
+  // Пользователь вручную нажимает ▶ на второй панели, пока первая занята
+  env12.w.__realClick(hQueued.el.$('.ax-btn-run'));
+  check('вторая панель немедленно удалена из AX.autoQueue до завершения выполнения',
+    !env12.w.AX.autoQueue.includes(hQueued));
+
+  console.log('\n[13] Отмена подтверждения (модалки) в doRun переводит панель в статус отмены и finish()');
+  const env13 = makeEnv({ autoExecute: false, requireConfirm: true });
+  await sleep(60);
+  const h13 = env13.w.AX.livePanels[0];
+  env13.w.__realClick(h13.el.$('.ax-btn-run'));
+  await sleep(60);
+  const modal13 = env13.w.document.querySelector('.ax-modal-backdrop');
+  check('модалка подтверждения открыта', !!modal13);
+  env13.w.__realClick(modal13.$('.ax-btn-cancel'));
+  await sleep(60);
+  check('модалка закрылась', env13.w.document.querySelector('.ax-modal-backdrop') === null);
+  const status13 = h13.el.$('.ax-exec-status');
+  check('статус очищен от running/автопилот и сообщает об отмене пользователем',
+    status13.textContent.includes('Действие отменено пользователем'), status13.textContent);
+  check('handle помечен как finish (done = true)', h13.done === true);
+  check('кнопка отмены авто отсутствует', h13.el.$('.ax-btn-cancel-auto') === null);
+
+  console.log('\n[14] Ранние пропуски в runAutoNow (empty/danger/duplicate) завершают панель (done = true)');
+  const env14 = makeEnv({ autoExecute: true });
+  await sleep(60);
+  env14.w.AX.waitForSettle = (pre, cb) => {
+    setTimeout(() => { try { cb(env14.w.AXDetector.getCodeText(pre)); } catch (e) {} }, 10);
+    return () => {};
+  };
+  const chat14 = env14.w.document.getElementById('chat');
+  const pre14 = env14.w.document.createElement('pre');
+  pre14.setAttribute('data-language', 'execute');
+  const code14 = env14.w.document.createElement('code');
+  code14.textContent = '   ';
+  pre14.appendChild(code14);
+  chat14.appendChild(pre14);
+  env14.w.AX.scan(chat14, true);
+  await sleep(30);
+  const h14 = env14.w.AX.livePanels[1];
+  h14.runNow(() => {});
+  await sleep(60);
+  check('пустая команда помечена finish (done = true)', h14.done === true);
+  const status14 = h14.el.$('.ax-exec-status');
+  check('статус содержит сообщение о пропуске пустой команды',
+    status14.textContent.includes('Пустая команда — пропуск'), status14.textContent);
+  check('кнопка отмены авто удалена', h14.el.$('.ax-btn-cancel-auto') === null);
+
+  console.log('\n[15] Отключение autoExecute в sync storage вызывает cancelAllAuto');
+  const env15 = makeEnv({ autoExecute: true });
+  await sleep(60);
+  check('начальный autoActive выставлен или панель активна',
+    env15.w.AX.autoActive === true || env15.w.AX.currentAuto !== null);
+  // Эмулируем смену настройки пользователем в options/popup
+  await env15.chromeStub.storage.sync.set({ autoExecute: false });
+  await sleep(50);
+  check('после отключения autoExecute очередь пуста', env15.w.AX.autoQueue.length === 0);
+  check('currentAuto очищен', env15.w.AX.currentAuto === null);
+  check('autoActive сброшен в false', env15.w.AX.autoActive === false);
+  const status15 = env15.w.AX.livePanels[0].el.$('.ax-exec-status');
+  check('статус панели показывает, что автопилот отключён',
+    status15.textContent.includes('Автопилот отключён в настройках'), status15.textContent);
 
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
