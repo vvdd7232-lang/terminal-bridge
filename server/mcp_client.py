@@ -31,6 +31,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -109,7 +110,14 @@ class McpServerClient:
             proc.wait(timeout=3)
         except Exception:
             try:
-                proc.kill()
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                                   capture_output=True, timeout=5)
+                else:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except Exception:
+                        proc.kill()
             except Exception:
                 pass
 
@@ -131,12 +139,18 @@ class McpServerClient:
             # а Popen ищет точное имя 'npx' и падает с FileNotFoundError —
             # то есть «команда не найдена» при установленном nodejs.
             exe = shutil.which(self.command) or self.command
+            extra_kwargs = {}
+            if os.name == 'nt':
+                extra_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                extra_kwargs['start_new_session'] = True
             try:
                 self.proc = subprocess.Popen(
                     [exe] + self.args,
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    cwd=self.cwd or None, env=env, bufsize=0)
+                    cwd=self.cwd or None, env=env, bufsize=0,
+                    **extra_kwargs)
             except FileNotFoundError:
                 self.proc = None
                 raise McpError('команда не найдена: %s' % self.command)

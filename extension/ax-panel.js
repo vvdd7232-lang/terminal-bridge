@@ -403,8 +403,12 @@
     content.className = 'ax-shadow-content';
     shadow.appendChild(style);
     shadow.appendChild(content);
+    // Очищаем отключённые элементы, чтобы не удерживать память в долгих чатах
+    for (let i = SHADOW_HOSTS.length - 1; i >= 0; i--) {
+      if (!SHADOW_HOSTS[i].isConnected) SHADOW_HOSTS.splice(i, 1);
+    }
     SHADOW_HOSTS.push(host);
-    if (SHADOW_HOSTS.length > 200) SHADOW_HOSTS.shift();
+    if (SHADOW_HOSTS.length > 50) SHADOW_HOSTS.shift();
     host.$ = (sel) => content.querySelector(sel);
     host.$$ = (sel) => content.querySelectorAll(sel);
     host.innerContent = content;
@@ -905,13 +909,14 @@
             }
           }
           refreshPreview(cmd);
+          const loopCheck = (AX.isLoopDetected ? AX.isLoopDetected(AX.lastAutoCommands, cmd) : { loop: false });
           AX.lastAutoCommands.push(cmd);
-          if (AX.lastAutoCommands.length > 5) AX.lastAutoCommands.shift();
-          if (AX.lastAutoCommands.length >= 3 && AX.lastAutoCommands.slice(-3).every((c) => c === cmd)) {
+          if (AX.lastAutoCommands.length > 10) AX.lastAutoCommands.shift();
+          if (loopCheck.loop) {
             AX.loopBlocked = true;
-            AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=loop-guard (одна команда 3 раза подряд)\n');
-            stopAutoTimer('🛑 Одна и та же команда 3 раза подряд — автопилот остановлен, дальше вручную.');
-            AX.toast('🛑 Похоже на зацикливание ИИ — автопилот выключен');
+            AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=loop-guard (' + loopCheck.reason + ')\n');
+            stopAutoTimer('🛑 Зацикливание ИИ (' + loopCheck.reason + ') — автопилот остановлен, дальше вручную.');
+            AX.toast('🛑 Зацикливание ИИ — ' + loopCheck.reason);
             finQ(); return;
           }
           const d = +AX.settings.autoDelay;

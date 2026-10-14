@@ -312,7 +312,7 @@ async function exportSettings() {
 
 async function importSettings(file) {
   try {
-    const text = await file.text();
+    const text = typeof file.text === "function" ? await file.text() : await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(reader.error || new Error("read error")); reader.readAsText(file); });
     const obj = JSON.parse(text);
     const clean = {};
     let importedToken = null;
@@ -475,7 +475,7 @@ document.addEventListener('change', (e) => {
     const bin = atob(padded);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    payload = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+    const TD = typeof TextDecoder !== "undefined" ? TextDecoder : (typeof window !== "undefined" && window.TextDecoder); payload = JSON.parse(TD ? new TD("utf-8").decode(bytes) : decodeURIComponent(escape(bin)));
   } catch (e) {
     // Сообщение показываем после load(): иначе его затрёт проверка связи.
     // Помечаем «липким», чтобы последующий statusMsg без вида его не сбил.

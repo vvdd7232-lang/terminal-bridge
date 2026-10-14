@@ -464,6 +464,25 @@ async function run() {
   check('PDF-экспорт маскирует секреты',
     /function journalHtml/.test(optJs) && /redactSecrets/.test(optJs));
 
+  console.log('\n[16] Loop Guard: обнаружение циклов и осцилляций (периоды 1, 2, 3)');
+  const lgNorm = w7.AX.normalizeForLoopCheck('npm test # attempt 2');
+  check('normalizeForLoopCheck вырезает комментарии', lgNorm === 'npm test', lgNorm);
+
+  const l1 = w7.AX.isLoopDetected(['git status', 'git status'], 'git status');
+  check('Loop Guard: пойман период 1 (одна команда 3 раза)', l1.loop === true && l1.period === 1, l1);
+
+  const l2 = w7.AX.isLoopDetected(['npm test # 1', 'git diff # 1', 'npm test # 2'], 'git diff # 2');
+  check('Loop Guard: поймана осцилляция период 2 (A -> B -> A -> B с разными комментариями)',
+    l2.loop === true && l2.period === 2, l2);
+
+  const l3 = w7.AX.isLoopDetected(['step1', 'step2', 'step3', 'step1', 'step2'], 'step3');
+  check('Loop Guard: пойман период 3 (A -> B -> C -> A -> B -> C)',
+    l3.loop === true && l3.period === 3, l3);
+
+  const lSafe = w7.AX.isLoopDetected(['step1', 'step2', 'step3'], 'step4');
+  check('Loop Guard: нормальная последовательность без циклов не блокируется',
+    lSafe.loop === false, lSafe);
+
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
   if (failed) {

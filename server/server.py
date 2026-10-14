@@ -18,6 +18,7 @@ import os
 import platform
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,8 @@ AUTH_TOKEN = None  # если задан - требуется заголовок
 LOG_FILE = None  # путь к файлу логов (None = только консоль)
 RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
 WHITELIST = None  # None = выключен; frozenset префиксов (lowercase) = включён
+TOKEN_SYNC_ENABLED = True  # флаг --no-token-sync отключает GET /ax-token
+ALLOWED_ORIGIN = None      # флаг --allowed-origin задаёт точный origin расширения
 
 # Файл со «стабильным» токеном: живёт в домашней папке пользователя, не в репо
 # (иначе секрет уехал бы в git). Так токен не меняется при каждом перезапуске,
@@ -378,27 +381,88 @@ def _win_short_path(p):
     return p
 
 
+_exec_semaphore = threading.Semaphore(8)  # лимит параллельных команд во избежание fork-bomb / OOM
+
+
+def _safe_run(args, timeout, cwd=None, env=None, shell=False, executable=None):
+    """Выполняет команду в отдельной группе процессов с гарантированным
+    уничтожением всего дерева дочерних процессов при таймауте."""
+    kwargs = {
+        'cwd': cwd or None,
+        'env': env,
+        'shell': shell,
+    }
+    if executable:
+        kwargs['executable'] = executable
+
+    if os.name == 'nt':
+        kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            try:
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                               capture_output=True, timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            try:
+                stdout, stderr = proc.communicate(timeout=2)
+            except Exception:
+                stdout, stderr = b'', b''
+            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+    else:
+        kwargs['start_new_session'] = True
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            try:
+                stdout, stderr = proc.communicate(timeout=2)
+            except Exception:
+                stdout, stderr = b'', b''
+            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+
+
 def _run_shell_windows_multiline(command, timeout, cwd, env=None):
     """Многострочные команды для cmd.exe.
     shell=True передаёт весь текст одной строкой — cmd.exe читает ТОЛЬКО
     первую строку и молча теряет всё после первого \n. Поэтому пишем
-    временный .cmd и запускаем файлом.
-
-    Кодировка — cp866 (OEM-кодировка русской консоли), chcp 866 выполняется
-    ДО `call`, чтобы cmd читал файл именно в cp866. При chcp 65001 кириллица
-    из тела .cmd ломается («т_мир» вместо «Привет_мир») — проверено."""
+    временный .cmd и запускаем файлом."""
     norm = command.replace('\r\n', '\n').replace('\r', '\n')
+    # Если текст укладывается в cp866 — пишем в cp866 (надежнее для cmd.exe).
+    # Если есть символы вне cp866 (эмодзи, диакритика, json unicode) — пишем utf-8-sig.
+    try:
+        norm.encode('cp866')
+        enc = 'cp866'
+        head = '@echo off\n'
+    except UnicodeEncodeError:
+        enc = 'utf-8-sig'
+        head = '@echo off\nchcp 65001 >nul\n'
+
     with tempfile.NamedTemporaryFile('w', suffix='.cmd', delete=False,
-                                     encoding='cp866', errors='replace', newline='') as f:
-        f.write('@echo off\n' + norm + '\n')
+                                     encoding=enc, errors='replace', newline='') as f:
+        f.write(head + norm + '\n')
         path = f.name
     try:
         # call + короткое имя без кавычек: кавычки вокруг пути cmd.exe
-        # обрабатывает нестабильно (в части сборок Windows путь с кавычками
-        # трактуется как имя файла с кавычками внутри).
+        # обрабатывает нестабильно.
         short = _win_short_path(path)
-        return subprocess.run(['cmd', '/d', '/c', 'chcp 866 >nul && call ' + short],
-                              capture_output=True, timeout=timeout, cwd=cwd or None, env=env)
+        cmd_call = ['cmd', '/d', '/c', 'chcp 866 >nul && call ' + short] if enc == 'cp866' else ['cmd', '/d', '/c', 'call ' + short]
+        return _safe_run(cmd_call, timeout=timeout, cwd=cwd or None, env=env)
     finally:
         try:
             os.unlink(path)
@@ -409,21 +473,13 @@ def _run_shell_windows_multiline(command, timeout, cwd, env=None):
 def run_shell(command, timeout, cwd):
     """Shell: cmd.exe на Windows, bash (или sh) на Linux/Mac."""
     if os.name == 'nt':
-        # Python при выводе в pipe по умолчанию берёт ANSI/OEM-кодировку консоли
-        # и падает на кириллице (UnicodeEncodeError: 'charmap'). Эти две
-        # переменные заставляют любой дочерний python писать UTF-8 независимо
-        # от chcp. node и так всегда пишет UTF-8, ему ничего не нужно.
         env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
-        # Многострочные команды — через .cmd-файл (см. _run_shell_windows_multiline).
         if '\n' in command:
             return _run_shell_windows_multiline(command, timeout, cwd, env)
-        # Однострочные: chcp 65001 — чтобы внутренние команды cmd отдавали UTF-8
-        # (кириллица не едет в ????).
-        return subprocess.run('chcp 65001 >nul & ' + command, shell=True, capture_output=True,
-                              timeout=timeout, cwd=cwd or None, env=env)
+        return _safe_run('chcp 65001 >nul & ' + command, timeout=timeout, cwd=cwd or None, env=env, shell=True)
     bash = '/bin/bash' if os.path.exists('/bin/bash') else '/bin/sh'
-    return subprocess.run(command, shell=True, capture_output=True,
-                          timeout=timeout, cwd=cwd or None, executable=bash)
+    return _safe_run(command, timeout=timeout, cwd=cwd or None, shell=True, executable=bash)
+
 
 def run_with_tempfile(code, timeout, cwd, suffix, argv, encoding='utf-8', env=None):
     """Записать код во временный файл и выполнить интерпретатором."""
@@ -431,8 +487,7 @@ def run_with_tempfile(code, timeout, cwd, suffix, argv, encoding='utf-8', env=No
         f.write(code)
         path = f.name
     try:
-        return subprocess.run([*argv, path], capture_output=True,
-                              timeout=timeout, cwd=cwd or None, env=env)
+        return _safe_run([*argv, path], timeout=timeout, cwd=cwd or None, env=env)
     finally:
         try:
             os.unlink(path)
@@ -539,6 +594,16 @@ def _load_whitelist(path):
     return frozenset(prefixes)
 
 
+_INLINE_EXEC_RE = re.compile(
+    r'(?:^|\s)(?:'
+    r'-(?:c|e|-command|-encodedcommand|enc)\b'
+    r'|/(?:c|e)\b'
+    r'|\b(?:eval|exec|Invoke-Expression|iex)\b'
+    r')',
+    re.IGNORECASE
+)
+
+
 def _check_whitelist(cmd):
     """Возвращает (ok: bool, reason: str).
     True - команда разрешена (или whitelist выключен)."""
@@ -550,6 +615,9 @@ def _check_whitelist(cmd):
     if _WHITELIST_META.search(c):
         return False, ('shell metacharacters (; & | < > ` $( and line breaks) '
                        'not allowed in whitelist mode')
+    if _INLINE_EXEC_RE.search(c):
+        return False, ('inline code execution (-c/-e/-Command/eval) is not allowed '
+                       'in whitelist mode; use predefined scripts')
     cl = c.lower()
     for prefix in WHITELIST:
         if cl == prefix or cl.startswith(prefix + ' '):
@@ -599,6 +667,35 @@ VIEW_MIMES = {
     '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.avif': 'image/avif',
 }
 
+_SENSITIVE_PATH_PARTS = {
+    '.ssh', '.gnupg', '.aws', '.azure', '.kube', '.config/gcloud',
+    'id_rsa', 'id_ed25519', 'id_ecdsa', 'known_hosts', 'authorized_keys',
+    '.git-credentials', '.netrc', 'shadow', 'passwd', 'sam', 'system',
+}
+
+
+def _is_sensitive_path(path):
+    norm = os.path.normpath(os.path.abspath(path))
+    parts = set(norm.lower().split(os.sep))
+    if any(p in parts for p in _SENSITIVE_PATH_PARTS):
+        return True
+    base = os.path.basename(norm).lower()
+    if base.startswith('.env') or base in ('id_rsa', 'id_ed25519', 'id_ecdsa', 'shadow', 'sam'):
+        return True
+    if norm.startswith(('/etc', '/proc', '/sys', '/dev', '/root')):
+        return True
+    return False
+
+
+def _sanitize_svg(data_bytes):
+    lower = data_bytes.lower()
+    bad_markers = [b'<script', b'javascript:', b'xlink:href="data:', b'onload=', b'onerror=', b'<foreignobject']
+    for marker in bad_markers:
+        if marker in lower:
+            return False, 'SVG contains potentially unsafe script or event handler'
+    return True, ''
+
+
 def _handle_view(raw_path):
     """Читает изображение и возвращает data URL. Shell не выполняет."""
     p = (raw_path or '').strip().strip('"').strip("'")
@@ -607,6 +704,8 @@ def _handle_view(raw_path):
     p = os.path.expanduser(p)
     if not os.path.isabs(p):
         p = os.path.abspath(p)
+    if _is_sensitive_path(p):
+        return {'ok': False, 'executed': False, 'error': 'view: access to sensitive or system paths is restricted'}
     if not os.path.exists(p):
         return {'ok': False, 'executed': False, 'error': 'view: file not found: ' + p}
     if not os.path.isfile(p):
@@ -625,11 +724,16 @@ def _handle_view(raw_path):
             data = fh.read()
     except OSError as e:
         return {'ok': False, 'executed': False, 'error': 'view: cannot read: ' + str(e)}
+    if mime == 'image/svg+xml':
+        ok_svg, svg_err = _sanitize_svg(data)
+        if not ok_svg:
+            return {'ok': False, 'executed': False, 'error': f'view: unsafe SVG ({svg_err})'}
     b64 = base64.b64encode(data).decode('ascii')
     data_url = 'data:' + mime + ';base64,' + b64
     return {'ok': True, 'executed': True, 'view': {
         'path': p, 'size': size, 'mime': mime, 'data_url': data_url,
     }}
+
 
 def execute(payload):
     command = payload.get('command') or ''
@@ -649,6 +753,12 @@ def execute(payload):
     if command.lower().startswith("view "):
         return _handle_view(command[5:])
     runner = str(payload.get('runner') or 'shell').strip().lower()
+    # В whitelist-режиме сырые интерпретаторы (python, node, powershell)
+    # блокируются, так как они исполняют невалидированный произвольный код
+    if WHITELIST is not None and runner in ('python', 'node', 'powershell'):
+        return {'ok': False, 'executed': False, 'blocked': True,
+                'error': f'whitelist: runner «{runner}» disabled in whitelist mode (executes unvalidated code)',
+                'command': command}
     timeout = payload.get('timeout') or DEFAULT_TIMEOUT
     cwd_raw = str(payload.get('cwd') or '').strip()
     cwd = os.path.expanduser(cwd_raw) if cwd_raw else None
@@ -663,81 +773,88 @@ def execute(payload):
         return {'ok': False, 'executed': False, 'error': f'cwd not found: {cwd}'}
     if runner not in ('shell', 'python', 'node', 'powershell'):
         return {'ok': False, 'executed': False, 'error': f'unknown runner: {runner}'}
+
+    acquired = _exec_semaphore.acquire(timeout=10)
+    if not acquired:
+        return {'ok': False, 'executed': False, 'error': 'server busy: max concurrent executions reached'}
+
     t0 = time.monotonic()  # замер длительности выполнения
 
     _log(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}')
     _log(f'--- command ---\n{command[:2000]}')
 
     try:
-        if runner == 'shell':
-            p = run_shell(command, timeout, cwd)
-        elif runner == 'python':
-            # PYTHONUTF8: кириллица/эмодзи в выводе не едут в ???? независимо от кодовой страницы
-            py_env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
-            p = run_with_tempfile(command, timeout, cwd, '.py', [sys.executable], env=py_env)
-        elif runner == 'node':
-            p = run_with_tempfile(command, timeout, cwd, '.js', ['node'])
-        elif runner == 'powershell':
-            # Многострочные скрипты через -Command схлопываются и ломаются на парсинге,
-            # поэтому пишем во временный .ps1 и запускаем через -File.
-            # BOM (utf-8-sig): иначе PowerShell 5.1 читает UTF-8-кириллицу как мусор.
-            ps_code = ("$ProgressPreference='SilentlyContinue'; "
-                       "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); "
-                       "$OutputEncoding=[System.Text.UTF8Encoding]::new();\n" + command)
-            with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig') as f:
-                f.write(ps_code)
-                ps_path = f.name
-            try:
-                p = subprocess.run(['powershell', '-NoProfile', '-NonInteractive',
-                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
-                                   capture_output=True, timeout=timeout, cwd=cwd or None)
-            except FileNotFoundError:
-                # Linux/macOS: PowerShell Core ставится как `pwsh`
-                p = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive',
-                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
-                                   capture_output=True, timeout=timeout, cwd=cwd or None)
-            finally:
+        try:
+            if runner == 'shell':
+                p = run_shell(command, timeout, cwd)
+            elif runner == 'python':
+                # PYTHONUTF8: кириллица/эмодзи в выводе не едут в ???? независимо от кодовой страницы
+                py_env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
+                p = run_with_tempfile(command, timeout, cwd, '.py', [sys.executable], env=py_env)
+            elif runner == 'node':
+                p = run_with_tempfile(command, timeout, cwd, '.js', ['node'])
+            elif runner == 'powershell':
+                # Многострочные скрипты через -Command схлопываются и ломаются на парсинге,
+                # поэтому пишем во временный .ps1 и запускаем через -File.
+                # BOM (utf-8-sig): иначе PowerShell 5.1 читает UTF-8-кириллицу как мусор.
+                ps_code = ("$ProgressPreference='SilentlyContinue'; "
+                           "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); "
+                           "$OutputEncoding=[System.Text.UTF8Encoding]::new();\n" + command)
+                with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig') as f:
+                    f.write(ps_code)
+                    ps_path = f.name
                 try:
-                    os.unlink(ps_path)
-                except OSError:
-                    pass
-    except subprocess.TimeoutExpired as e:
-        out = smart_decode(e.stdout)
-        err = smart_decode(e.stderr)
-        tout_err = (err + '\n' if err else '') + f'[TIMEOUT {timeout}s]'
-        clipped_out, _ = _clip(out)
-        clipped_err, _ = _clip(tout_err)
-        return {'ok': True, 'runner': runner, 'command': command, 'exit_code': 124,
-                'executed': True, 'cwd': cwd or os.getcwd(),
-                'stdout': clipped_out, 'stderr': clipped_err,
-                'truncated': True,
-                'stdout_bytes': len(e.stdout or b''), 'stderr_bytes': len(e.stderr or b''),
-                'limit_bytes': MAX_OUTPUT, 'duration_ms': int((time.monotonic() - t0) * 1000), 'timed_out': True}
-    except FileNotFoundError as e:
-        return {'ok': False, 'executed': False, 'error': f'interpreter not found: {e}'}
-    except OSError as e:
-        return {'ok': False, 'executed': False, 'error': f'execution failed: {e}'}
+                    p = _safe_run(['powershell', '-NoProfile', '-NonInteractive',
+                                   '-ExecutionPolicy', 'Bypass', '-File', ps_path],
+                                  timeout=timeout, cwd=cwd or None)
+                except FileNotFoundError:
+                    # Linux/macOS: PowerShell Core ставится как `pwsh`
+                    p = _safe_run(['pwsh', '-NoProfile', '-NonInteractive',
+                                   '-ExecutionPolicy', 'Bypass', '-File', ps_path],
+                                  timeout=timeout, cwd=cwd or None)
+                finally:
+                    try:
+                        os.unlink(ps_path)
+                    except OSError:
+                        pass
+        except subprocess.TimeoutExpired as e:
+            out = smart_decode(e.stdout)
+            err = smart_decode(e.stderr)
+            tout_err = (err + '\n' if err else '') + f'[TIMEOUT {timeout}s]'
+            clipped_out, _ = _clip(out)
+            clipped_err, _ = _clip(tout_err)
+            return {'ok': True, 'runner': runner, 'command': command, 'exit_code': 124,
+                    'executed': True, 'cwd': cwd or os.getcwd(),
+                    'stdout': clipped_out, 'stderr': clipped_err,
+                    'truncated': True,
+                    'stdout_bytes': len(e.stdout or b''), 'stderr_bytes': len(e.stderr or b''),
+                    'limit_bytes': MAX_OUTPUT, 'duration_ms': int((time.monotonic() - t0) * 1000), 'timed_out': True}
+        except FileNotFoundError as e:
+            return {'ok': False, 'executed': False, 'error': f'interpreter not found: {e}'}
+        except OSError as e:
+            return {'ok': False, 'executed': False, 'error': f'execution failed: {e}'}
 
-    raw_out, raw_err = p.stdout or b'', p.stderr or b''
-    stdout, stderr = smart_decode(raw_out), smart_decode(raw_err)
-    eff_cwd = cwd or os.getcwd()
-    clipped_out, t1 = _clip(stdout)
-    clipped_err, t2 = _clip(stderr)
-    dur_ms = int((time.monotonic() - t0) * 1000)
-    _log(f'[done] exit={p.returncode} dur={dur_ms}ms stdout={len(raw_out)}B stderr={len(raw_err)}B')
-    return {'ok': True, 'runner': runner, 'command': command, 'exit_code': p.returncode,
-            'executed': True, 'cwd': eff_cwd,
-            'stdout': clipped_out, 'stderr': clipped_err, 'truncated': (t1 or t2),
-            'stdout_bytes': len(raw_out), 'stderr_bytes': len(raw_err), 'limit_bytes': MAX_OUTPUT,
-            'duration_ms': dur_ms, 'timed_out': False}
+        raw_out, raw_err = p.stdout or b'', p.stderr or b''
+        stdout, stderr = smart_decode(raw_out), smart_decode(raw_err)
+        eff_cwd = cwd or os.getcwd()
+        clipped_out, t1 = _clip(stdout)
+        clipped_err, t2 = _clip(stderr)
+        dur_ms = int((time.monotonic() - t0) * 1000)
+        _log(f'[done] exit={p.returncode} dur={dur_ms}ms stdout={len(raw_out)}B stderr={len(raw_err)}B')
+        return {'ok': True, 'runner': runner, 'command': command, 'exit_code': p.returncode,
+                'executed': True, 'cwd': eff_cwd,
+                'stdout': clipped_out, 'stderr': clipped_err, 'truncated': (t1 or t2),
+                'stdout_bytes': len(raw_out), 'stderr_bytes': len(raw_err), 'limit_bytes': MAX_OUTPUT,
+                'duration_ms': dur_ms, 'timed_out': False}
+    finally:
+        _exec_semaphore.release()
 
 class Handler(BaseHTTPRequestHandler):
     server_version = 'AIExecuteRunner/' + VERSION
 
-    def _allowed(self):
+    def _allowed(self, is_token_sync=False):
         # Защита от DNS-rebinding и чужих сайтов:
-        # Host обязан быть локальным, Origin — пустым (curl/навигация),
-        # chrome-extension:// (наше расширение) или локальным.
+        # Host обязан быть локальным.
         self._cors_origin = 'null'  # per-request; атрибут класса здесь не годится
         host = (self.headers.get('Host') or '').split(':')[0].strip().lower()
         if host not in ('127.0.0.1', 'localhost', '[::1]', '::1'):
@@ -748,8 +865,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             o = urlparse(origin)
             if o.scheme in ('chrome-extension', 'moz-extension'):
+                if ALLOWED_ORIGIN and not origin.startswith(ALLOWED_ORIGIN):
+                    return False
                 self._cors_origin = origin
                 return True
+            # Для /ax-token сайты на localhost категорически запрещены
+            if is_token_sync:
+                return False
             if o.hostname in ('127.0.0.1', 'localhost'):
                 self._cors_origin = origin
                 return True
@@ -773,7 +895,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Token')
 
     def do_OPTIONS(self):
-        if not self._allowed():
+        req_path = urlparse(self.path).path.rstrip('/') or '/'
+        if not self._allowed(is_token_sync=(req_path == '/ax-token')):
             self.send_response(403)
             self.end_headers()
             return
@@ -791,9 +914,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        req_path = urlparse(self.path).path.rstrip('/') or '/'
+        if req_path == '/ax-token':
+            if not TOKEN_SYNC_ENABLED:
+                return self._json({'ok': False, 'error': 'token synchronization disabled (--no-token-sync)'}, 403)
+            if not self._allowed(is_token_sync=True):
+                return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
+            return self._json({'ok': True, 'auth_required': bool(AUTH_TOKEN),
+                               'token': AUTH_TOKEN or ''})
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
-        req_path = urlparse(self.path).path.rstrip('/') or '/'
         if req_path == '/mcp/servers':
             if not self._check_token():
                 return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
@@ -803,15 +933,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': True, 'enabled': True, 'servers': MCP_REGISTRY.describe(),
                                'tools': 0, 'config': MCP_REGISTRY.config_path,
                                'config_error': MCP_REGISTRY.load_error})
-        if req_path == '/ax-token':
-            # Zero-touch синхронизация токена: запрос уже прошёл проверку
-            # Origin/Host (_allowed выше) — значит это наше расширение или
-            # локальный клиент, а не чужой сайт (его отсекает DNS-rebinding/
-            # Origin-защита). Отдаём актуальный токен, чтобы расширению не нужна
-            # была ручная ссылка #ax-setup и оно не спотыкалось о 401 после
-            # перезапуска сервера.
-            return self._json({'ok': True, 'auth_required': bool(AUTH_TOKEN),
-                               'token': AUTH_TOKEN or ''})
         if req_path in ('/ping', '/'):
             self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
                         'cwd': os.getcwd(), 'python': sys.version.split()[0],
@@ -1069,9 +1190,16 @@ def main():
                     help='отвечать «да» на интерактивные вопросы (для скриптов и ярлыков)')
     ap.add_argument('--mcp-config', default=None, metavar='FILE',
                     help='конфиг MCP-серверов (по умолчанию server/mcp_servers.json)')
+    ap.add_argument('--no-token-sync', action='store_true',
+                    help='отключить эндпоинт /ax-token (только ручная настройка через #ax-setup)')
+    ap.add_argument('--allowed-origin', default=None,
+                    help='разрешённый Origin расширения (chrome-extension://... или moz-extension://...)')
     args = ap.parse_args()
     VERBOSE = args.verbose
     MAX_OUTPUT = args.max_output if args.max_output >= 0 else 1_000_000
+    global TOKEN_SYNC_ENABLED, ALLOWED_ORIGIN
+    TOKEN_SYNC_ENABLED = not args.no_token_sync
+    ALLOWED_ORIGIN = args.allowed_origin.strip() if args.allowed_origin else None
     global AUTH_TOKEN
     if args.no_token:
         AUTH_TOKEN = None

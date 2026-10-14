@@ -438,6 +438,37 @@
     return txt;
   };
 
+  // --- Защита от зацикливания автопилота (Loop Guard) ---
+  AX.normalizeForLoopCheck = function (cmd) {
+    if (!cmd) return '';
+    return String(cmd)
+      .replace(/(?:^|\s)(?:#|\/\/)[^\n]*/g, '')  // вырезаем однострочные комментарии
+      .replace(/\s+/g, ' ')                      // схлопываем пробелы
+      .trim()
+      .toLowerCase();
+  };
+
+  AX.isLoopDetected = function (history, nextCmd) {
+    const normNext = AX.normalizeForLoopCheck(nextCmd);
+    if (!normNext) return { loop: false };
+    const list = (history || []).map(AX.normalizeForLoopCheck).filter(Boolean);
+    list.push(normNext);
+    const len = list.length;
+    // Период 1: одна и та же команда 3 раза подряд (A -> A -> A)
+    if (len >= 3 && list[len - 1] === list[len - 2] && list[len - 2] === list[len - 3]) {
+      return { loop: true, period: 1, reason: 'одна команда 3 раза подряд' };
+    }
+    // Период 2: осцилляция между двумя командами (A -> B -> A -> B)
+    if (len >= 4 && list[len - 1] === list[len - 3] && list[len - 2] === list[len - 4]) {
+      return { loop: true, period: 2, reason: 'чередование двух команд (цикл A -> B -> A -> B)' };
+    }
+    // Период 3: цикл из трёх команд (A -> B -> C -> A -> B -> C)
+    if (len >= 6 && list[len - 1] === list[len - 4] && list[len - 2] === list[len - 5] && list[len - 3] === list[len - 6]) {
+      return { loop: true, period: 3, reason: 'чередование трёх команд (цикл A -> B -> C)' };
+    }
+    return { loop: false };
+  };
+
   // ---------- MCP [экспериментально] ----------
   // Блок execute-mcp содержит JSON: {"server": "...", "tool": "...",
   // "arguments": {...}}. Разбор вынесен сюда, а не в панель, чтобы его можно

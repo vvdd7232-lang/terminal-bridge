@@ -784,6 +784,91 @@ class TestTokenAutosync(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data['token'], 'current-secret')
 
+    def test_ax_token_rejects_localhost_web_origin(self):
+        server.AUTH_TOKEN = 'current-secret'
+        status, _ = self._req('/ax-token', origin='http://localhost:3000')
+        self.assertEqual(status, 403)
+        status, _ = self._req('/ax-token', origin='http://127.0.0.1:8080')
+        self.assertEqual(status, 403)
+
+    def test_ax_token_disabled_by_flag(self):
+        server.AUTH_TOKEN = 'current-secret'
+        server.TOKEN_SYNC_ENABLED = False
+        try:
+            status, data = self._req('/ax-token', origin='chrome-extension://abcdefghijklmnop')
+            self.assertEqual(status, 403)
+            self.assertIn('disabled', data.get('error', ''))
+        finally:
+            server.TOKEN_SYNC_ENABLED = True
+
+    def test_ax_token_allowed_origin_filter(self):
+        server.AUTH_TOKEN = 'current-secret'
+        server.ALLOWED_ORIGIN = 'moz-extension://my-extension-uuid'
+        try:
+            status, _ = self._req('/ax-token', origin='chrome-extension://other-id')
+            self.assertEqual(status, 403)
+            status, data = self._req('/ax-token', origin='moz-extension://my-extension-uuid')
+            self.assertEqual(status, 200)
+            self.assertEqual(data['token'], 'current-secret')
+        finally:
+            server.ALLOWED_ORIGIN = None
+
+
+class TestSecurityHardenings(unittest.TestCase):
+    def setUp(self):
+        server.WHITELIST = frozenset({'python', 'node', 'ls'})
+        self.addCleanup(self._cleanup)
+
+    def _cleanup(self):
+        server.WHITELIST = None
+
+    def test_whitelist_blocks_inline_python(self):
+        ok, reason = server._check_whitelist('python -c "import os"')
+        self.assertFalse(ok)
+        self.assertIn('inline code execution', reason)
+
+    def test_whitelist_blocks_inline_node(self):
+        ok, reason = server._check_whitelist('node -e "process.exit()"')
+        self.assertFalse(ok)
+        self.assertIn('inline code execution', reason)
+
+    def test_whitelist_allows_script_file(self):
+        ok, _ = server._check_whitelist('python script.py')
+        self.assertTrue(ok)
+        ok, _ = server._check_whitelist('node app.js')
+        self.assertTrue(ok)
+
+    def test_execute_blocks_raw_interpreters_in_whitelist_mode(self):
+        r = server.execute({'command': 'print(1)', 'runner': 'python'})
+        self.assertFalse(r.get('ok'))
+        self.assertTrue(r.get('blocked'))
+        self.assertIn('whitelist', r.get('error', ''))
+
+    def test_view_blocks_sensitive_paths(self):
+        server.WHITELIST = None
+        r = server.execute({'command': 'view ~/.ssh/id_rsa.png', 'runner': 'shell'})
+        self.assertFalse(r.get('ok'))
+        self.assertIn('restricted', r.get('error', ''))
+
+        r = server.execute({'command': 'view /etc/shadow.png', 'runner': 'shell'})
+        self.assertFalse(r.get('ok'))
+        self.assertIn('restricted', r.get('error', ''))
+
+    def test_view_blocks_unsafe_svg(self):
+        server.WHITELIST = None
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix='.svg', delete=False)
+        tmp.write(b'<svg><script>alert(1)</script></svg>')
+        tmp.close()
+        try:
+            r = server.execute({'command': 'view ' + tmp.name, 'runner': 'shell'})
+            self.assertFalse(r.get('ok'))
+            self.assertIn('unsafe SVG', r.get('error', ''))
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
 
 
 if __name__ == '__main__':
