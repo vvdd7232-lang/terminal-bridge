@@ -175,10 +175,35 @@ async function pingServer(serverUrl) {
   }
 }
 
-async function runCommand({ command, runner, timeout, cwd }) {
+const activeControllers = new Map(); // runId -> AbortController
+
+async function abortCommand({ runId }) {
+  if (!runId) return { ok: false, error: 'no runId' };
+  const ctrl = activeControllers.get(runId);
+  if (ctrl) {
+    try { ctrl.abort(); } catch (e) { /* ignore */ }
+    activeControllers.delete(runId);
+  }
+  const s = await getSettings();
+  const base = normUrl(s.serverUrl);
+  try {
+    const res = await authFetch(base, '/abort', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id: runId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: true, aborted: true, data };
+  } catch (e) {
+    return { ok: true, aborted: true, error: String(e) };
+  }
+}
+
+async function runCommand({ command, runner, timeout, cwd, runId }) {
   const s = await getSettings();
   const base = normUrl(s.serverUrl);
   const ctrl = new AbortController();
+  if (runId) activeControllers.set(runId, ctrl);
   // таймаут запроса = таймаут команды + 8 сек запаса
   const t = setTimeout(() => ctrl.abort(), ((timeout || s.timeout || 30) + 8) * 1000);
   try {
@@ -188,7 +213,7 @@ async function runCommand({ command, runner, timeout, cwd }) {
     const res = await authFetch(base, '/run', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ command, runner, timeout: timeout || s.timeout, cwd }),
+      body: JSON.stringify({ command, runner, timeout: timeout || s.timeout, cwd, run_id: runId }),
       signal: ctrl.signal
     });
     const data = await res.json().catch(() => ({}));
@@ -198,6 +223,7 @@ async function runCommand({ command, runner, timeout, cwd }) {
     return maskResult(data, command, await getAuthToken());
   } finally {
     clearTimeout(t);
+    if (runId) activeControllers.delete(runId);
   }
 }
 
@@ -319,6 +345,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       } else if (msg.type === 'AX_RUN') {
         const data = await runCommand(msg.payload || {});
         sendResponse({ ok: true, result: data });
+      } else if (msg.type === 'AX_ABORT') {
+        const runId = msg.runId || (msg.payload && msg.payload.runId);
+        sendResponse(await abortCommand({ runId }));
       } else if (msg.type === 'AX_MCP_STATUS') {
         sendResponse({ ok: true, status: await mcpStatus() });
       } else if (msg.type === 'AX_MCP_TOOLS') {

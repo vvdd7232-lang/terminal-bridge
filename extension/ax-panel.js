@@ -192,13 +192,19 @@
     );
   }
 
-  function sendRun(cmd, runRunner, cb) {
+  function sendRun(cmd, runRunner, cb, runId) {
     if (runRunner === 'mcp') { sendMcpBlock(cmd, cb); return; }
     AX.safeSend(
-      { type: 'AX_RUN', payload: { command: cmd, runner: runRunner, timeout: AX.settings.timeout, cwd: AX.settings.defaultCwd || undefined } },
+      { type: 'AX_RUN', payload: { command: cmd, runner: runRunner, timeout: AX.settings.timeout, cwd: AX.settings.defaultCwd || undefined, runId } },
       cb
     );
   }
+
+  function sendAbort(runId, cb) {
+    if (!runId) return;
+    AX.safeSend({ type: 'AX_ABORT', runId }, cb || (() => {}));
+  }
+  AX.sendAbort = sendAbort;
 
   AX.runArbitrary = async function (text, defaultRunner, opts) {
     opts = opts || {};
@@ -505,6 +511,7 @@
       '<div class="ax-noisy-hint"></div>' +
       '<div class="ax-exec-after" style="display:none">' +
         '<button class="ax-btn ax-btn-insert"></button>' +
+        '<button class="ax-btn ax-btn-fix" style="display:none" title="Спросить ИИ, как исправить ошибку"></button>' +
         '<button class="ax-btn ax-btn-copy ax-btn-copy-out ax-btn-icon" title="Скопировать вывод"></button>' +
       '</div>';
 
@@ -520,6 +527,7 @@
     AX.setBtnLabel(panel.$('.ax-btn-run'), 'play', 'Выполнить');
     AX.setBtnLabel(panel.$('.ax-btn-copy'), 'copy', '');
     AX.setBtnLabel(panel.$('.ax-btn-insert'), 'chat', 'В чат');
+    AX.setBtnLabel(panel.$('.ax-btn-fix'), 'bolt', '✨ Как исправить');
     AX.setBtnLabel(panel.$('.ax-btn-copy-out'), 'copy', '');
 
     // Структура предпросмотра команды: иконка-состояние, текст и подсказка.
@@ -563,11 +571,19 @@
 
     const btnRun = panel.$('.ax-btn-run');
     const btnCopy = panel.$('.ax-btn-copy');
+    const btnInsert = panel.$('.ax-btn-insert');
+    const btnFix = panel.$('.ax-btn-fix');
+    const btnCopyOut = panel.$('.ax-btn-copy-out');
     const status = panel.$('.ax-exec-status');
     const outBox = panel.$('.ax-exec-output');
     const after = panel.$('.ax-exec-after');
     let lastFormatted = '';
     let lastChatFormatted = '';
+    let lastRunResult = null;
+    let lastRunCmd = '';
+    let lastRunRunner = '';
+    let currentRunId = null;
+    let running = false;
 
     function renderPreview() {
       const box = panel.$('.ax-exec-cmd-preview');
@@ -640,9 +656,27 @@
 
     async function doRun(cmdOverride, isAuto, onDone) {
       const done = () => { try { onDone && onDone(); } catch (e) { /* ignore */ } };
-      if (running) { AX.toast('Уже выполняется — дождись результата'); done(); return; }
+      if (running) {
+        if (currentRunId) {
+          sendAbort(currentRunId);
+          AX.toast('⏹ Прерываю процесс…');
+        } else {
+          AX.toast('Уже выполняется — дождись результата');
+        }
+        done();
+        return;
+      }
       running = true;
-      const fin = () => { running = false; done(); };
+      currentRunId = 'ax-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const fin = () => {
+        running = false;
+        currentRunId = null;
+        btnRun.classList.remove('ax-btn-abort');
+        btnRun.disabled = false;
+        AX.setBtnLabel(btnRun, 'play', 'Выполнить');
+        btnRun.title = '';
+        done();
+      };
       if (!isAuto) { AX.loopBlocked = false; AX.lastAutoCommands = []; }
       const cmd = ((cmdOverride != null ? cmdOverride : D.getCodeText(pre)) || '').trim();
       if (!cmd) { AX.toast('Пустая команда'); fin(); return; }
@@ -669,12 +703,15 @@
         try { runnerSelect.value = runRunner; } catch (e) { /* ignore */ }
       }
       stopAutoTimer();
-      btnRun.disabled = true;
-      AX.setBtnLabel(btnRun, null, 'Выполняется…');
+      btnRun.disabled = false;
+      btnRun.classList.add('ax-btn-abort');
+      AX.setBtnLabel(btnRun, 'stop', '⏹ Прервать');
+      btnRun.title = 'Остановить выполнение процесса';
       status.className = 'ax-exec-status ax-running';
       status.textContent = isAuto ? '🤖 Автопилот: выполняется…' : 'Выполняется локально…';
       outBox.style.display = 'none';
       after.style.display = 'none';
+      if (btnFix) btnFix.style.display = 'none';
 
       let runFinished = false;
       let runStatusSent = false;
@@ -699,8 +736,10 @@
           // команда запускалась повторно.
           autoHandle.finish();
           if (runStatusTimer) clearTimeout(runStatusTimer);
+          btnRun.classList.remove('ax-btn-abort');
           btnRun.disabled = false;
           AX.setBtnLabel(btnRun, 'play', 'Выполнить');
+          btnRun.title = '';
           if (!resp) {
             AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\nнет ответа от расширения\n');
             status.className = 'ax-exec-status ax-err'; status.textContent = '❌ Нет ответа от расширения.'; fin(); return;
@@ -715,6 +754,9 @@
             return;
           }
           const r = resp.result || {};
+          lastRunResult = r;
+          lastRunCmd = cmd;
+          lastRunRunner = runRunner;
           if (r.blocked) {
             AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n' + (r.error || '') + '\n');
             status.className = 'ax-exec-status ax-err';
@@ -728,6 +770,19 @@
           try { AX.recordRun(r.runner || runRunner, r.view ? true : r.exit_code === 0, r.blocked ? 'blocked' : 'done', { auto: isAuto }); } catch (e) { /* ignore */ }
           lastFormatted = AX.formatRunResult(cmd, runRunner, r, mySeq, 'full');
           lastChatFormatted = AX.formatRunResult(cmd, runRunner, r, mySeq, AX.settings.echoMode);
+          if (r.venv) {
+            let venvBadge = panel.$('.ax-venv-badge');
+            if (!venvBadge) {
+              venvBadge = document.createElement('span');
+              venvBadge.className = 'ax-venv-badge';
+              const runnerWrap = panel.$('.ax-runner-wrap');
+              if (runnerWrap) runnerWrap.appendChild(venvBadge);
+            }
+            const parts = r.venv.replace(/\\/g, '/').split('/');
+            const shortName = (parts.length >= 2 ? parts[parts.length - 2] : 'venv');
+            venvBadge.textContent = '🐍 ' + shortName;
+            venvBadge.title = 'Virtualenv: ' + r.venv;
+          }
           if (r.view) {
             try { AX.renderView(panel, r.view); } catch (e) { /* ignore */ }
             if (r.view.data_url) {
@@ -739,7 +794,9 @@
           }
           const okExit = r.view ? true : (r.exit_code === 0);
           status.className = 'ax-exec-status ' + (okExit ? 'ax-ok' : 'ax-err');
-          if (r.view) {
+          if (r.aborted) {
+            status.textContent = '⏹ Команда прервана пользователем (exit=130) #' + mySeq;
+          } else if (r.view) {
             status.textContent = '🖼️ view: ' + r.view.path + ' (' + r.view.mime + ', ' + Math.round(r.view.size / 1024) + ' KB) #' + mySeq;
           } else {
             status.textContent = (okExit ? '✅ exit=0' : '⚠️ exit=' + r.exit_code) + ' #' + mySeq + ' • stdout: ' + (r.stdout || '').length + ' симв. • stderr: ' + (r.stderr || '').length + ' симв.';
@@ -747,6 +804,9 @@
           outBox.textContent = lastFormatted;
           outBox.style.display = 'block';
           after.style.display = 'flex';
+          if (btnFix) {
+            btnFix.style.display = (!okExit && !r.aborted) ? 'inline-flex' : 'none';
+          }
           // Человеческое объяснение провала: сырой stderr понятен не всем, а
           // ИИ в чате видит только текст — поэтому подсказка идёт и на панель.
           showExplain(r, okExit);
@@ -762,7 +822,8 @@
             } catch (e) { console.warn('[AX] insert:', e); }
           }
           fin();
-        }
+        },
+        currentRunId
       );
     }
 
@@ -782,6 +843,11 @@
 
     panel.$('.ax-btn-run').onclick = (e) => {
       if (!trustedClick(e)) return;
+      if (running && currentRunId) {
+        AX.toast('⏹ Останавливаю процесс…');
+        sendAbort(currentRunId);
+        return;
+      }
       stopAutoTimer();
       const handle = autoHandle;
       doRun(null, false, () => { if (handle) dequeueAuto(handle); });
@@ -791,7 +857,6 @@
     let autoTimer = null;
     let settleCancelFn = null;
     let autoCancelled = false;
-    let running = false;
     let phase2 = false;
     let forceAutoOnce = false;
 
@@ -949,6 +1014,15 @@
       try { AX.insertIntoChat('\n```text\n' + forChat + '\n```\n'); } catch (e) { /* ignore */ }
       AX.silentCopy(forChat);
     };
+    if (btnFix) {
+      btnFix.onclick = () => {
+        if (!lastRunResult) return;
+        const fixPrompt = AX.formatFixPrompt(lastRunCmd || command, lastRunRunner || panelRunner(), lastRunResult);
+        try { AX.insertIntoChat(fixPrompt); } catch (e) { /* ignore */ }
+        AX.silentCopy(fixPrompt);
+        AX.toast('✨ Запрос на исправление вставлен в чат');
+      };
+    }
     panel.$('.ax-btn-copy-out').onclick = async () => {
       const ok = await AX.copyToClipboard(lastFormatted);
       AX.toast(ok ? 'Вывод скопирован' : 'Не удалось скопировать');

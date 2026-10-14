@@ -483,6 +483,43 @@ async function run() {
   check('Loop Guard: нормальная последовательность без циклов не блокируется',
     lSafe.loop === false, lSafe);
 
+  console.log('\n[17] Smart Fix Prompt, Abort & Virtualenv UI');
+  const fixRes = { exit_code: 1, stderr: "ModuleNotFoundError: No module named 'requests'" };
+  const promptText = w7.AX.formatFixPrompt('python test.py', 'python', fixRes);
+  check('formatFixPrompt содержит команду и среду',
+    promptText.includes('python test.py') && promptText.includes('python'), promptText);
+  check('formatFixPrompt содержит анализ ошибки',
+    promptText.includes('ModuleNotFoundError') && promptText.includes('Python: модуль не установлен'), promptText);
+  check('formatFixPrompt просит ИИ исправить',
+    promptText.includes('предложи исправленный вариант'), promptText);
+
+  const env8 = makeEnv();
+  const w8 = env8.w;
+  await sleep(30);
+  const panel = w8.document.querySelector('.ax-exec-panel');
+  check('Панель создана в DOM', !!panel);
+  const btnRun = panel.$('.ax-btn-run');
+  const btnFix = panel.$('.ax-btn-fix');
+  check('Кнопка «Выполнить» есть на панели', !!btnRun);
+  check('Кнопка «Как исправить» есть на панели', !!btnFix);
+  check('Кнопка «Как исправить» изначально скрыта', btnFix.style.display === 'none' || !btnFix.style.display);
+
+  // Проверка CSS стилей для abort, fix и venv
+  const uiCssStyles = fs.readFileSync(path.join(EXT_DIR, 'ax-ui.css'), 'utf8');
+  check('CSS содержит стили для .ax-btn-abort', uiCssStyles.includes('.ax-btn-run.ax-btn-abort'));
+  check('CSS содержит стили для .ax-btn-fix', uiCssStyles.includes('.ax-btn-fix'));
+  check('CSS содержит стили для .ax-venv-badge', uiCssStyles.includes('.ax-venv-badge'));
+
+  // Проверка метода sendAbort
+  let sentAbortMsg = null;
+  w8.chrome.runtime.sendMessage = (msg, cb) => {
+    if (msg.type === 'AX_ABORT') sentAbortMsg = msg;
+    if (cb) cb({ ok: true, aborted: true });
+  };
+  w8.AX.sendAbort('test-run-456');
+  check('AX.sendAbort отправляет AX_ABORT с runId в background',
+    sentAbortMsg && sentAbortMsg.type === 'AX_ABORT' && sentAbortMsg.runId === 'test-run-456', sentAbortMsg);
+
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
   if (failed) {

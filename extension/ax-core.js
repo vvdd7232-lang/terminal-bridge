@@ -469,6 +469,29 @@
     return { loop: false };
   };
 
+  // --- Генерация промпта для ИИ «Как исправить ошибку» ---
+  AX.formatFixPrompt = function (cmd, runner, result) {
+    result = result || {};
+    let explain = '';
+    try {
+      const D = window.AXDetector;
+      const info = D && D.describeFailure && D.describeFailure(result);
+      if (info && info.title) {
+        explain = 'Суть проблемы: ' + info.title + (info.hint ? ' (' + info.hint + ')' : '') + '\n';
+      }
+    } catch (e) { /* ignore */ }
+
+    const errText = (result.stderr || result.stdout || result.error || '').trim();
+    const tail = errText.length > 2000 ? '…\n' + errText.slice(-2000) : errText;
+    let txt = '\nКоманда `$ ' + (cmd || '').trim() + '` (' + (runner || 'shell') + ') завершилась с ошибкой';
+    if (result.exit_code != null) txt += ' (код ' + result.exit_code + ')';
+    txt += ':\n';
+    if (explain) txt += explain;
+    if (tail) txt += '```text\n' + tail + '\n```\n';
+    txt += 'Объясни причину и предложи исправленный вариант для ```execute.\n';
+    return txt;
+  };
+
   // ---------- MCP [экспериментально] ----------
   // Блок execute-mcp содержит JSON: {"server": "...", "tool": "...",
   // "arguments": {...}}. Разбор вынесен сюда, а не в панель, чтобы его можно

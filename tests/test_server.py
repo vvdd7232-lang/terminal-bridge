@@ -870,6 +870,49 @@ class TestSecurityHardenings(unittest.TestCase):
             except OSError:
                 pass
 
+    def test_detect_venv_finds_virtualenv(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            venv_bin = os.path.join(tmpdir, '.venv', 'bin')
+            os.makedirs(venv_bin, exist_ok=True)
+            fake_py = os.path.join(venv_bin, 'python')
+            with open(fake_py, 'w') as f:
+                f.write('#!/bin/sh\n')
+            os.chmod(fake_py, 0o755)
+
+            found = server._detect_venv_python(tmpdir)
+            self.assertEqual(os.path.realpath(found), os.path.realpath(fake_py))
+
+    def test_detect_venv_fallback_to_sys_executable(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            found = server._detect_venv_python(tmpdir)
+            self.assertEqual(found, sys.executable)
+
+    def test_abort_terminates_running_process(self):
+        import threading
+        import time
+        server.WHITELIST = None
+        server.AUTH_TOKEN = None
+        run_id = 'test_abort_123'
+        cmd = 'sleep 5' if os.name != 'nt' else 'ping 127.0.0.1 -n 6'
+
+        res_box = []
+        def runner():
+            r = server.execute({'command': cmd, 'runner': 'shell', 'run_id': run_id, 'timeout': 10})
+            res_box.append(r)
+        t = threading.Thread(target=runner)
+        t.start()
+        time.sleep(0.3)
+
+        aborted = server._abort_proc(run_id)
+        self.assertTrue(aborted)
+        t.join(timeout=3)
+        self.assertEqual(len(res_box), 1)
+        r = res_box[0]
+        self.assertTrue(r.get('aborted'))
+        self.assertEqual(r.get('exit_code'), 130)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

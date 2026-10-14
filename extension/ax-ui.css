@@ -214,6 +214,44 @@
 
 .ax-btn-insert:hover { background: var(--ax-accent-soft); border-color: var(--ax-accent-ring); }
 
+.ax-btn-run.ax-btn-abort {
+  background: linear-gradient(180deg, var(--ax-danger), #b91c1c) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  animation: ax-pulse 1.4s ease-in-out infinite;
+}
+.ax-btn-run.ax-btn-abort:hover {
+  filter: brightness(1.1) !important;
+  background: linear-gradient(180deg, #ef4444, #dc2626) !important;
+}
+
+.ax-btn-fix {
+  background: rgba(234, 179, 8, 0.14);
+  border-color: rgba(234, 179, 8, 0.45);
+  color: var(--ax-warn, #d97706);
+  font-weight: 500;
+}
+.ax-btn-fix:hover {
+  background: rgba(234, 179, 8, 0.24);
+  border-color: var(--ax-warn, #d97706);
+}
+
+.ax-venv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: var(--ax-r-sm, 4px);
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--ax-success, #16a34a);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  font-family: var(--ax-font-mono);
+  margin-left: 6px;
+  user-select: none;
+}
+
 .ax-btn-cancel { background: var(--ax-surface-2); border-color: var(--ax-border); color: var(--ax-text); }
 
 .ax-btn-confirm { background: var(--ax-danger); border-color: transparent; color: #fff; }

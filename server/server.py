@@ -382,11 +382,69 @@ def _win_short_path(p):
 
 
 _exec_semaphore = threading.Semaphore(8)  # лимит параллельных команд во избежание fork-bomb / OOM
+_active_procs_lock = threading.Lock()
+_active_procs = {}  # run_id -> subprocess.Popen
+_aborted_runs = set()  # run_ids, которые были отменены пользователем
 
 
-def _safe_run(args, timeout, cwd=None, env=None, shell=False, executable=None):
+def _abort_proc(run_id):
+    """Прерывает активный процесс по его run_id, убивая всю группу процессов."""
+    if not run_id:
+        return False
+    rid = str(run_id)
+    with _active_procs_lock:
+        _aborted_runs.add(rid)
+        proc = _active_procs.get(rid)
+    if not proc:
+        return False
+    if os.name == 'nt':
+        try:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                           capture_output=True, timeout=5)
+            return True
+        except Exception:
+            try:
+                proc.kill()
+                return True
+            except Exception:
+                return False
+    else:
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGKILL)
+            return True
+        except Exception:
+            try:
+                proc.kill()
+                return True
+            except Exception:
+                return False
+
+
+def _detect_venv_python(cwd=None):
+    """Ищет виртуальное окружение Python (.venv, venv, env, .env) в CWD и до 2 уровней вверх."""
+    cur = os.path.abspath(cwd or os.getcwd())
+    candidate_names = ('.venv', 'venv', 'env', '.env')
+    for _ in range(3):
+        for venv_name in candidate_names:
+            vdir = os.path.join(cur, venv_name)
+            if os.path.isdir(vdir):
+                if os.name == 'nt':
+                    py_exe = os.path.join(vdir, 'Scripts', 'python.exe')
+                else:
+                    py_exe = os.path.join(vdir, 'bin', 'python')
+                if os.path.isfile(py_exe) and os.access(py_exe, os.X_OK if os.name != 'nt' else os.F_OK):
+                    return py_exe
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return sys.executable
+
+
+def _safe_run(args, timeout, cwd=None, env=None, shell=False, executable=None, run_id=None):
     """Выполняет команду в отдельной группе процессов с гарантированным
-    уничтожением всего дерева дочерних процессов при таймауте."""
+    уничтожением всего дерева дочерних процессов при таймауте или прерывании."""
     kwargs = {
         'cwd': cwd or None,
         'env': env,
@@ -397,11 +455,20 @@ def _safe_run(args, timeout, cwd=None, env=None, shell=False, executable=None):
 
     if os.name == 'nt':
         kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
-        except subprocess.TimeoutExpired:
+    else:
+        kwargs['start_new_session'] = True
+
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    rid = str(run_id) if run_id else None
+    if rid:
+        with _active_procs_lock:
+            _active_procs[rid] = proc
+
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        if os.name == 'nt':
             try:
                 subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)],
                                capture_output=True, timeout=5)
@@ -410,18 +477,7 @@ def _safe_run(args, timeout, cwd=None, env=None, shell=False, executable=None):
                     proc.kill()
                 except Exception:
                     pass
-            try:
-                stdout, stderr = proc.communicate(timeout=2)
-            except Exception:
-                stdout, stderr = b'', b''
-            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
-    else:
-        kwargs['start_new_session'] = True
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
-        except subprocess.TimeoutExpired:
+        else:
             try:
                 pgid = os.getpgid(proc.pid)
                 os.killpg(pgid, signal.SIGKILL)
@@ -430,14 +486,18 @@ def _safe_run(args, timeout, cwd=None, env=None, shell=False, executable=None):
                     proc.kill()
                 except Exception:
                     pass
-            try:
-                stdout, stderr = proc.communicate(timeout=2)
-            except Exception:
-                stdout, stderr = b'', b''
-            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+        try:
+            stdout, stderr = proc.communicate(timeout=2)
+        except Exception:
+            stdout, stderr = b'', b''
+        raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+    finally:
+        if rid:
+            with _active_procs_lock:
+                _active_procs.pop(rid, None)
 
 
-def _run_shell_windows_multiline(command, timeout, cwd, env=None):
+def _run_shell_windows_multiline(command, timeout, cwd, env=None, run_id=None):
     """Многострочные команды для cmd.exe.
     shell=True передаёт весь текст одной строкой — cmd.exe читает ТОЛЬКО
     первую строку и молча теряет всё после первого \n. Поэтому пишем
@@ -462,7 +522,7 @@ def _run_shell_windows_multiline(command, timeout, cwd, env=None):
         # обрабатывает нестабильно.
         short = _win_short_path(path)
         cmd_call = ['cmd', '/d', '/c', 'chcp 866 >nul && call ' + short] if enc == 'cp866' else ['cmd', '/d', '/c', 'call ' + short]
-        return _safe_run(cmd_call, timeout=timeout, cwd=cwd or None, env=env)
+        return _safe_run(cmd_call, timeout=timeout, cwd=cwd or None, env=env, run_id=run_id)
     finally:
         try:
             os.unlink(path)
@@ -470,24 +530,24 @@ def _run_shell_windows_multiline(command, timeout, cwd, env=None):
             pass
 
 
-def run_shell(command, timeout, cwd):
+def run_shell(command, timeout, cwd, run_id=None):
     """Shell: cmd.exe на Windows, bash (или sh) на Linux/Mac."""
     if os.name == 'nt':
         env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
         if '\n' in command:
-            return _run_shell_windows_multiline(command, timeout, cwd, env)
-        return _safe_run('chcp 65001 >nul & ' + command, timeout=timeout, cwd=cwd or None, env=env, shell=True)
+            return _run_shell_windows_multiline(command, timeout, cwd, env, run_id=run_id)
+        return _safe_run('chcp 65001 >nul & ' + command, timeout=timeout, cwd=cwd or None, env=env, shell=True, run_id=run_id)
     bash = '/bin/bash' if os.path.exists('/bin/bash') else '/bin/sh'
-    return _safe_run(command, timeout=timeout, cwd=cwd or None, shell=True, executable=bash)
+    return _safe_run(command, timeout=timeout, cwd=cwd or None, shell=True, executable=bash, run_id=run_id)
 
 
-def run_with_tempfile(code, timeout, cwd, suffix, argv, encoding='utf-8', env=None):
+def run_with_tempfile(code, timeout, cwd, suffix, argv, encoding='utf-8', env=None, run_id=None):
     """Записать код во временный файл и выполнить интерпретатором."""
     with tempfile.NamedTemporaryFile('w', suffix=suffix, delete=False, encoding=encoding) as f:
         f.write(code)
         path = f.name
     try:
-        return _safe_run([*argv, path], timeout=timeout, cwd=cwd or None, env=env)
+        return _safe_run([*argv, path], timeout=timeout, cwd=cwd or None, env=env, run_id=run_id)
     finally:
         try:
             os.unlink(path)
@@ -778,21 +838,29 @@ def execute(payload):
     if not acquired:
         return {'ok': False, 'executed': False, 'error': 'server busy: max concurrent executions reached'}
 
+    run_id = str(payload.get('run_id') or '').strip() or None
+    used_venv = None
+
     t0 = time.monotonic()  # замер длительности выполнения
 
-    _log(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}')
+    _log(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}' +
+         (f' run_id={run_id}' if run_id else ''))
     _log(f'--- command ---\n{command[:2000]}')
 
     try:
         try:
             if runner == 'shell':
-                p = run_shell(command, timeout, cwd)
+                p = run_shell(command, timeout, cwd, run_id=run_id)
             elif runner == 'python':
+                py_exe = _detect_venv_python(cwd)
+                if py_exe != sys.executable:
+                    used_venv = py_exe
+                    _log(f'[python] обнаружен virtualenv: {py_exe}')
                 # PYTHONUTF8: кириллица/эмодзи в выводе не едут в ???? независимо от кодовой страницы
                 py_env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
-                p = run_with_tempfile(command, timeout, cwd, '.py', [sys.executable], env=py_env)
+                p = run_with_tempfile(command, timeout, cwd, '.py', [py_exe], env=py_env, run_id=run_id)
             elif runner == 'node':
-                p = run_with_tempfile(command, timeout, cwd, '.js', ['node'])
+                p = run_with_tempfile(command, timeout, cwd, '.js', ['node'], run_id=run_id)
             elif runner == 'powershell':
                 # Многострочные скрипты через -Command схлопываются и ломаются на парсинге,
                 # поэтому пишем во временный .ps1 и запускаем через -File.
@@ -806,12 +874,12 @@ def execute(payload):
                 try:
                     p = _safe_run(['powershell', '-NoProfile', '-NonInteractive',
                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
-                                  timeout=timeout, cwd=cwd or None)
+                                  timeout=timeout, cwd=cwd or None, run_id=run_id)
                 except FileNotFoundError:
                     # Linux/macOS: PowerShell Core ставится как `pwsh`
                     p = _safe_run(['pwsh', '-NoProfile', '-NonInteractive',
                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
-                                  timeout=timeout, cwd=cwd or None)
+                                  timeout=timeout, cwd=cwd or None, run_id=run_id)
                 finally:
                     try:
                         os.unlink(ps_path)
@@ -834,15 +902,25 @@ def execute(payload):
         except OSError as e:
             return {'ok': False, 'executed': False, 'error': f'execution failed: {e}'}
 
+        was_aborted = False
+        if run_id:
+            with _active_procs_lock:
+                if run_id in _aborted_runs:
+                    was_aborted = True
+                    _aborted_runs.discard(run_id)
+
         raw_out, raw_err = p.stdout or b'', p.stderr or b''
         stdout, stderr = smart_decode(raw_out), smart_decode(raw_err)
         eff_cwd = cwd or os.getcwd()
         clipped_out, t1 = _clip(stdout)
         clipped_err, t2 = _clip(stderr)
         dur_ms = int((time.monotonic() - t0) * 1000)
-        _log(f'[done] exit={p.returncode} dur={dur_ms}ms stdout={len(raw_out)}B stderr={len(raw_err)}B')
-        return {'ok': True, 'runner': runner, 'command': command, 'exit_code': p.returncode,
-                'executed': True, 'cwd': eff_cwd,
+        exit_code = 130 if was_aborted else p.returncode
+        _log(f'[done] exit={exit_code} dur={dur_ms}ms stdout={len(raw_out)}B stderr={len(raw_err)}B' +
+             (' (aborted)' if was_aborted else ''))
+        return {'ok': True, 'runner': runner, 'command': command,
+                'exit_code': exit_code, 'aborted': was_aborted,
+                'executed': True, 'cwd': eff_cwd, 'venv': used_venv,
                 'stdout': clipped_out, 'stderr': clipped_err, 'truncated': (t1 or t2),
                 'stdout_bytes': len(raw_out), 'stderr_bytes': len(raw_err), 'limit_bytes': MAX_OUTPUT,
                 'duration_ms': dur_ms, 'timed_out': False}
@@ -950,13 +1028,10 @@ class Handler(BaseHTTPRequestHandler):
         req_path = urlparse(self.path).path.rstrip('/') or '/'
         if req_path in ('/mcp/tools', '/mcp/call', '/mcp/reload', '/mcp/report'):
             return self._mcp_post(req_path)
-        if req_path != '/run':
+        if req_path not in ('/run', '/abort'):
             return self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
         if not self._check_token():
             return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
-        ok_rate, wait_s = _check_rate()
-        if not ok_rate:
-            return self._json({'ok': False, 'error': f'rate limit exceeded ({RATE_LIMIT}/min), retry in {wait_s:.1f}s'}, 429)
         try:
             length = int(self.headers.get('Content-Length', 0))
         except ValueError:
@@ -981,6 +1056,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': False, 'error': 'invalid JSON'}, 400)
         if not isinstance(payload, dict):
             return self._json({'ok': False, 'error': 'JSON body must be an object'}, 400)
+
+        if req_path == '/abort':
+            run_id = payload.get('run_id')
+            if not run_id:
+                return self._json({'ok': False, 'error': 'missing run_id'}, 400)
+            aborted = _abort_proc(run_id)
+            return self._json({'ok': True, 'aborted': aborted, 'run_id': run_id})
+
+        ok_rate, wait_s = _check_rate()
+        if not ok_rate:
+            return self._json({'ok': False, 'error': f'rate limit exceeded ({RATE_LIMIT}/min), retry in {wait_s:.1f}s'}, 429)
+
         result = execute(payload)
         self._json(result, 200 if result.get('ok') else 400)
 
