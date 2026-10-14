@@ -183,9 +183,16 @@
     { site: 'ChatGPT',         sel: 'textarea#prompt-textarea' },
     { site: 'ChatGPT',         sel: 'div#prompt-textarea[contenteditable="true"], div#prompt-textarea[contenteditable="plaintext-only"]' },
     { site: 'Claude',          sel: 'div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="plaintext-only"]' },
-    { site: 'Gemini',          sel: 'rich-textarea textarea' },
+    { site: 'Gemini',          sel: 'rich-textarea textarea, rich-textarea [contenteditable="true"], rich-textarea [contenteditable="plaintext-only"], div.ql-editor[contenteditable="true"]' },
     { site: 'Copilot',         sel: 'textarea[data-testid="user-input"], #user-input-textbox' },
-    { site: 'Alice',          sel: 'textarea.AliceInput-Textarea' },
+    { site: 'Alice',          sel: 'textarea.AliceInput-Textarea, textarea[class*="AliceInput" i], [class*="AliceInput" i] textarea' },
+    { site: 'Grok',            sel: 'textarea[placeholder*="Grok" i], textarea[aria-label*="Grok" i], div[contenteditable="true"][aria-label*="Grok" i]' },
+    { site: 'Perplexity',      sel: 'textarea[data-testid*="search" i], textarea[placeholder*="Ask anything" i], textarea[placeholder*="Ask" i]' },
+    { site: 'GigaChat',        sel: 'textarea[data-testid*="chat-input" i], div[data-testid*="chat-input" i], textarea[placeholder*="Спроси" i], textarea[placeholder*="Напиши" i]' },
+    { site: 'Qwen',            sel: 'textarea[placeholder*="Qwen" i], textarea[data-testid*="chat-input" i]' },
+    { site: 'Mistral',         sel: 'textarea[placeholder*="Mistral" i], div[contenteditable="true"][data-placeholder*="Ask" i]' },
+    { site: 'AI Studio',       sel: 'ms-textarea textarea, textarea[aria-label*="Prompt" i], textarea[placeholder*="Type something" i]' },
+    { site: 'Arena',           sel: 'textarea[data-testid*="textbox" i], textarea[placeholder*="Send a message" i], div.gradio-container textarea' },
     { site: 'contenteditable', sel: 'div[contenteditable="true"][role="textbox"], div[contenteditable="plaintext-only"][role="textbox"]' },
     { site: 'textarea',        sel: 'textarea[placeholder]' },
     { site: 'contenteditable', sel: 'div[contenteditable="true"], div[contenteditable="plaintext-only"]' },
@@ -279,7 +286,8 @@
 
   AX.setTextareaReactSafe = function (input, text) {
     try {
-      const proto = window.HTMLTextAreaElement.prototype;
+      const isInput = input.tagName === 'INPUT';
+      const proto = (isInput ? window.HTMLInputElement : window.HTMLTextAreaElement).prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
       const start = input.selectionStart != null ? input.selectionStart : input.value.length;
       const end = input.selectionEnd != null ? input.selectionEnd : input.value.length;
@@ -297,13 +305,25 @@
     if (!input) { AX.silentCopy(text); if (toastText !== null) AX.toast('Поле ввода чата не найдено — результат скопирован в буфер'); return null; }
     try {
       input.focus();
-      if (input.tagName === 'TEXTAREA') {
+      if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
         AX.setTextareaReactSafe(input, text);
       } else {
+        const sel = window.getSelection();
+        if (sel) {
+          if (!sel.rangeCount || !input.contains(sel.anchorNode)) {
+            const range = document.createRange();
+            range.selectNodeContents(input);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
         let ok = false;
         try { ok = document.execCommand('insertText', false, text); } catch (e) { ok = false; }
         if (!ok) {
-          const sel = window.getSelection();
+          try {
+            input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+          } catch (e) { /* ignore */ }
           if (sel && sel.rangeCount) {
             const range = sel.getRangeAt(0);
             range.deleteContents();
@@ -336,7 +356,8 @@
       const ta = document.createElement('textarea');
       ta.value = text;
       ta.style.position = 'fixed';
-      ta.style.opacity = '0';
+      ta.style.left = '-9999px';
+      ta.style.top = '-9999px';
       (document.body || document.documentElement).appendChild(ta);
       ta.focus();
       ta.select();
@@ -362,23 +383,43 @@
   // --- отправка сообщения в чат ---
   AX.findSendButton = function (input) {
     const scopes = [];
-    try { if (input && input.closest) { const f = input.closest('form'); if (f) scopes.push(f); } } catch (e) { /* ignore */ }
+    try {
+      if (input && input.closest) {
+        const f = input.closest('form') ||
+          input.closest('[class*="chat" i], [class*="composer" i], [class*="input" i], [class*="prompt" i], [role="presentation"]');
+        if (f) scopes.push(f);
+      }
+    } catch (e) { /* ignore */ }
     scopes.push(document);
+    try {
+      if (typeof AX.collectShadowRoots === 'function') {
+        const srs = AX.collectShadowRoots();
+        if (srs && srs.length) scopes.push(...srs);
+      }
+    } catch (e) { /* ignore */ }
     const sels = [
       'button[data-testid*="send" i]',
+      'button[data-testid*="fruitjuice-send-button" i]',
       'button[aria-label*="send" i]',
       'button[aria-label*="отправить" i]',
+      'button[title*="send" i]',
+      'button[title*="отправить" i]',
+      'button[aria-label*="submit" i]',
+      'button[title*="submit" i]',
       '[role="button"][data-testid*="send" i]',
       '[role="button"][aria-label*="send" i]',
       '[role="button"][aria-label*="отправить" i]',
+      '[role="button"][aria-label*="submit" i]',
+      'button.send-button',
+      'button.AliceInput-Button',
+      'button[class*="AliceInput" i]',
       'button[type="submit"]',
-      'button.send-button'
     ];
     for (const scope of scopes) {
       for (const sel of sels) {
         try {
           const b = scope.querySelector(sel);
-          if (b && AX.isVisibleEl(b) && !b.disabled) return b;
+          if (b && AX.isVisibleEl(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true') return b;
         } catch (e) { /* ignore */ }
       }
     }
@@ -388,18 +429,35 @@
   AX.autoSendToChat = function (input, onSent) {
     let sent = false;
     const done = () => { if (!sent) { sent = true; try { onSent && onSent(); } catch (e) { /* ignore */ } } };
-    setTimeout(() => {
+    const t0 = Date.now();
+    const trySend = () => {
       try {
         if (!input || !input.isConnected) { AX.toast('Поле ввода исчезло — отправь сам'); done(); return; }
         const btn = AX.findSendButton(input);
-        if (btn) { btn.click(); AX.toast('🤖 Результат отправлен ИИ'); done(); return; }
+        if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+          btn.click();
+          AX.toast('🤖 Результат отправлен ИИ');
+          done();
+          return;
+        }
+        if (btn && (btn.disabled || btn.getAttribute('aria-disabled') === 'true')) {
+          try {
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          } catch (e) { /* ignore */ }
+        }
+        if (Date.now() - t0 < 2500) {
+          setTimeout(trySend, 200);
+          return;
+        }
         input.focus();
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
         input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
         AX.toast('⚠️ Кнопка не найдена: Enter отправлен, но чат мог его проигнорировать');
       } catch (e) { AX.toast('Не нашёл кнопку отправки — нажми Enter сам'); }
       done();
-    }, 700);
+    };
+    setTimeout(trySend, 400);
   };
 
   // --- форматирование результата ---
@@ -581,6 +639,18 @@
     });
   };
 
+  // --- статус активной генерации ИИ ---
+  AX.isGenerationActive = function () {
+    try {
+      const stopBtn = document.querySelector(
+        'button[data-testid*="stop" i], button[aria-label*="stop" i], button[aria-label*="остановить" i], ' +
+        '[role="button"][data-testid*="stop" i], [role="button"][aria-label*="stop" i], .result-streaming'
+      );
+      if (stopBtn && AX.isVisibleEl(stopBtn)) return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  };
+
   // --- ожидание конца стриминга блока ---
   // Возвращает функцию отмены. cb('') если блок исчез из DOM.
   AX.waitForSettle = function (pre, cb) {
@@ -597,7 +667,15 @@
       let cur = '';
       try { cur = window.AXDetector.getCodeText(pre); } catch (e) { /* ignore */ }
       if (cur !== last) { last = cur; lastChange = now; }
-      if (now - lastChange >= 2500 || now - t0 >= 120000) { clearInterval(iv); cb(last); }
+      const genActive = (typeof AX.isGenerationActive === 'function') && AX.isGenerationActive();
+      // Если генерация активна (горит кнопка Stop), ждём её окончания
+      if (!genActive && (now - lastChange >= 2500 || now - t0 >= 120000)) {
+        clearInterval(iv);
+        cb(last);
+      } else if (now - t0 >= 120000) {
+        clearInterval(iv);
+        cb(last);
+      }
     }, 500);
     return () => clearInterval(iv);
   };

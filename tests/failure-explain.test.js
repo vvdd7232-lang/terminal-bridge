@@ -58,6 +58,10 @@ console.log('\nправа доступа:');
 check('Windows', idOf({ exit_code: 1, stderr: "Access to the path 'C:\\Windows\\hosts' is denied." }), 'permission');
 check('Unix', idOf({ exit_code: 1, stderr: 'Error: EACCES: permission denied, open /etc/shadow' }), 'permission');
 
+console.log('\nGit:');
+check('не git-репозиторий', idOf({ exit_code: 128, stderr: "fatal: not a git repository (or any of the parent directories): .git" }), 'git-not-repo');
+check('ошибка авторизации Git', idOf({ exit_code: 128, stderr: "fatal: could not read Username for 'https://github.com': No such device or address" }), 'git-auth');
+
 console.log('\nPython:');
 check('NameError', idOf({ exit_code: 1, stderr: "NameError: name 'x' is not defined" }), 'python-name');
 check('ModuleNotFoundError', idOf({ exit_code: 1, stderr: "ModuleNotFoundError: No module named 'requests'" }), 'python-module');

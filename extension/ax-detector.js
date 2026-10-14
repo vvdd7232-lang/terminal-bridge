@@ -332,6 +332,18 @@
       hint: 'Проверь имя и PATH: `which <команда>`. Возможно, пакет не установлен.',
     },
     {
+      id: 'git-not-repo',
+      test: (x) => /fatal: not a git repository/i.test(x.stderr),
+      title: 'Не найден репозиторий Git (.git)',
+      hint: 'Команда выполняется не в папке проекта. Перейди в нужный каталог через `cd <папка> && git ...` или укажи «Рабочая папка для команд» в настройках (⚙️).',
+    },
+    {
+      id: 'git-auth',
+      test: (x) => /fatal: (could not read (username|password)|Authentication failed|No such device or address)/i.test(x.stderr),
+      title: 'Ошибка авторизации Git',
+      hint: 'Git запрашивает учётные данные или токен. Настрой SSH-ключ (`git@github.com:...`) или Personal Access Token.',
+    },
+    {
       id: 'path-not-found-ps',
       test: (x) => /Cannot find (path|drive)|because it does not exist|не удается найти путь/i.test(x.stderr),
       title: 'Путь не найден',
@@ -612,9 +624,21 @@
 
   // --- DOM-зависимые функции (тестируются через jsdom) ---
 
+  // Извлекает текст узла: в фоновых вкладках и невидимых блоках innerText
+  // в Chromium/Firefox часто равен пустой строке "", тогда как textContent
+  // содержит реальный код. Используем textContent как фоллбэк.
+  function domText(el) {
+    if (!el) return '';
+    const it = (el.innerText || '').trim();
+    const tc = (el.textContent || '').trim();
+    if (!it && tc) return el.textContent || '';
+    return (el.innerText != null ? el.innerText : el.textContent) || '';
+  }
+
   function getCodeText(pre) {
     const code = pre.querySelector('code');
-    const raw = (code ? (code.innerText != null ? code.innerText : code.textContent) : (pre.innerText != null ? pre.innerText : pre.textContent)) || '';
+    const target = code || pre;
+    const raw = domText(target);
     const lines = raw.replace(/\r\n/g, '\n').split('\n');
     if (lines.length && /^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(?:execut(?:e|ion)?|exec)(?:[-:][a-z0-9_-]+)?$/i.test(lines[0].trim()))
       lines.shift();
@@ -691,7 +715,7 @@
       }
     }
     if (code) {
-      const first = ((code.innerText != null ? code.innerText : code.textContent) || '').split('\n')[0].trim().toLowerCase();
+      const first = domText(code).split('\n')[0].trim().toLowerCase();
       const m = first.match(/^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(execut(?:e|ion)?|exec)(?:[-:](python|js|node|pwsh|powershell|mcp))?$/i);
       if (m) {
         let runner = 'shell';
@@ -718,7 +742,7 @@
         if (sib.classList && sib.classList.contains('ax-exec-panel')) { sib = sib.previousElementSibling; continue; }
         const hasPre = sib.tagName === 'PRE' || (sib.querySelector && sib.querySelector('pre'));
         if (!hasPre) {
-          const t = ((sib.innerText != null ? sib.innerText : sib.textContent) || '').trim();
+          const t = domText(sib).trim();
           if (t) {
             const cleaned = t.replace(/copy|копировать|скопировано/gi, '').trim();
             const bare = cleaned.replace(/^[^a-zа-яё`]+|[^a-zа-яё`]+$/gi, '');

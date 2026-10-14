@@ -101,7 +101,12 @@
   }
 
   function composerScope(input) {
-    try { return input.closest('form') || input.parentElement || input; } catch (e) { return input; }
+    try {
+      return (input && input.closest && (
+        input.closest('form') ||
+        input.closest('[class*="chat" i], [class*="composer" i], [class*="input" i], [class*="prompt" i], [role="presentation"]')
+      )) || (input && input.parentElement) || input;
+    } catch (e) { return input; }
   }
 
   function countAttachmentNodes(scope) {

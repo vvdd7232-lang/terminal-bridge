@@ -28,7 +28,15 @@
     force = !!force;
     const pres = [];
     if (root && root.tagName === 'PRE') pres.push(root);
-    else if (root && root.querySelectorAll) pres.push(...root.querySelectorAll('pre'));
+    else if (root && root.querySelectorAll) {
+      pres.push(...root.querySelectorAll('pre'));
+      if (typeof AX.collectShadowRoots === 'function') {
+        const srs = AX.collectShadowRoots();
+        for (const sr of srs) {
+          try { pres.push(...sr.querySelectorAll('pre')); } catch (e) { /* ignore */ }
+        }
+      }
+    }
     for (let i = AX.livePanels.length - 1; i >= 0; i--) {
       if (AX.livePanels[i].el && !AX.livePanels[i].el.isConnected) AX.livePanels.splice(i, 1);
     }
@@ -147,6 +155,7 @@
   function needsScan(root) {
     if (!root) return false;
     if (root.tagName === 'PRE') return !root.dataset.axDone;
+    if (root.shadowRoot && root.shadowRoot.querySelector && root.shadowRoot.querySelector('pre:not([data-ax-done])')) return true;
     if (!root.querySelectorAll) return false;
     const pres = root.querySelectorAll('pre');
     for (const pre of pres) if (!pre.dataset.axDone) return true;
