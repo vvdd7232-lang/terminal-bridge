@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI Execute Runner — локальный сервер выполнения команд.
+TerminalBridge — powered by Marusya — локальный сервер выполнения команд.
 Слушает ТОЛЬКО 127.0.0.1:8765 (доступ лишь с вашего ПК).
 Расширение для браузера шлёт сюда команды из ```execute-блоков.
 
@@ -146,7 +146,7 @@ def _mcp_tools_report():
         total += len(entry['tools'])
         servers_out.append(entry)
 
-    lines = ['# MCP-инструменты (AI Execute Runner)', '']
+    lines = ['# MCP-инструменты (TerminalBridge — powered by Marusya)', '']
     lines.append('Список инструментов внешних MCP-серверов. Используй ТОЛЬКО эти имена:')
     lines.append('несуществующий сервер или инструмент вернёт ошибку.')
     lines.append('')
@@ -566,7 +566,7 @@ def _clip(text):
     return data[:MAX_OUTPUT].decode('utf-8', errors='ignore'), True
 
 
-DEFAULT_WHITELIST_CONTENT = """# AI Execute Runner - whitelist
+DEFAULT_WHITELIST_CONTENT = """# TerminalBridge — powered by Marusya - whitelist
 #
 # Одна команда/префикс на строку. Строки, начинающиеся с #, игнорируются.
 # Команда разрешена, если она РАВНА префиксу или начинается с "префикс + пробел".
@@ -1364,7 +1364,7 @@ def main():
         print(f'ошибка: не могу занять порт {args.port}: {e}')
         sys.exit(1)
     _log('=' * 60)
-    _log(f'  AI Execute Runner v{VERSION} — локальный сервер запущен')
+    _log(f'  TerminalBridge — powered by Marusya v{VERSION} — локальный сервер запущен')
     _log(f'  http://127.0.0.1:{args.port}  (только этот ПК, platform={platform.system()})')
     _log('  Откройте ChatGPT / Claude / Arena, ИИ пишет ```execute — подтверждайте запуск.')
     _log(f'  Лимит вывода: {MAX_OUTPUT} байт (0 = без лимита)')

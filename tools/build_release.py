@@ -57,12 +57,12 @@ def zip_dir(src_dir, zip_path, prefix='', replace_files=None, exclude_names=None
 
 
 # 1. Firefox .xpi
-firefox_xpi = os.path.join(DIST_DIR, f"ai-execute-runner-{VERSION}-firefox.xpi")
+firefox_xpi = os.path.join(DIST_DIR, f"terminal-bridge-{VERSION}-firefox.xpi")
 print(f"==> Packaging Firefox: {os.path.basename(firefox_xpi)}")
 zip_dir(EXT_DIR, firefox_xpi, exclude_names={'manifest.chrome.json'})
 
 # 2. Chrome .zip (with manifest.chrome.json as manifest.json)
-chrome_zip = os.path.join(DIST_DIR, f"ai-execute-runner-{VERSION}-chrome.zip")
+chrome_zip = os.path.join(DIST_DIR, f"terminal-bridge-{VERSION}-chrome.zip")
 print(f"==> Packaging Chrome: {os.path.basename(chrome_zip)}")
 zip_dir(
     EXT_DIR,
@@ -77,7 +77,7 @@ print(f"==> Updating root {os.path.basename(root_xpi)}")
 shutil.copyfile(firefox_xpi, root_xpi)
 
 # 4. Server .zip (with server/ folder at archive root)
-server_zip = os.path.join(DIST_DIR, f"ai-execute-runner-{VERSION}-server.zip")
+server_zip = os.path.join(DIST_DIR, f"terminal-bridge-{VERSION}-server.zip")
 print(f"==> Packaging Server: {os.path.basename(server_zip)}")
 zip_dir(SERVER_DIR, server_zip, prefix='server', exclude_names={'mcp_servers.local.json', 'whitelist.txt'})
 

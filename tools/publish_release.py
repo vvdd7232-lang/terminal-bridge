@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-REPO = 'vvdd7232-lang/this-is-new-repo'
+REPO = 'vvdd7232-lang/terminal-bridge'
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DIST_DIR = os.path.join(ROOT, 'dist')
 

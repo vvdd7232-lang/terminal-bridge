@@ -4,7 +4,7 @@
 # Заголовок релиза. Версия берётся из параметра, текст — отсюда.
 param(
     [string]$Tag = 'v2.12.2',
-    [string]$Repo = 'vvdd7232-lang/this-is-new-repo'
+    [string]$Repo = 'vvdd7232-lang/terminal-bridge'
 )
 
 $ErrorActionPreference = 'Stop'

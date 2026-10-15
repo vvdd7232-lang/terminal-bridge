@@ -1,4 +1,4 @@
-/* AI Execute Runner — ax-palette.js
+/* TerminalBridge — powered by Marusya — ax-palette.js
  *
  * Палитра команд: Ctrl+Shift+E (или Cmd+Shift+E) на странице чата.
  *

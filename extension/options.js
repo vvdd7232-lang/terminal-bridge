@@ -26,7 +26,7 @@ async function axStorageRemove(area, keys) {
     chrome.storage[area].remove(keys, () => resolve());
   });
 }
-// Страница настроек AI Execute Runner (все параметры в одном месте)
+// Страница настроек TerminalBridge — powered by Marusya (все параметры в одном месте)
 
 const DEFAULTS = {
   serverUrl: 'http://127.0.0.1:8765',
@@ -544,7 +544,7 @@ function journalLines(entries, secrets) {
   };
   const list = Array.isArray(entries) ? entries : [];
   const out = [];
-  out.push('# Журнал выполнений — AI Execute Runner');
+  out.push('# Журнал выполнений — TerminalBridge — powered by Marusya');
   out.push('');
   out.push('Всего записей: **' + list.length + '** · выгружено: ' + fmtTime(Date.now()) +
     ' · версия расширения: ' + (() => { try { return axApi.runtime.getManifest().version; } catch (e) { return '?'; } })());
@@ -728,7 +728,7 @@ function journalHtml(entries, secrets) {
       '<tr class="cmd"><td colspan="4"><code>' + escapeHtml(safe(e.cmd)) + '</code></td></tr>';
   }).join('');
   return '<!doctype html><html lang="ru"><head><meta charset="utf-8">' +
-    '<title>Журнал выполнений — AI Execute Runner</title><style>' +
+    '<title>Журнал выполнений — TerminalBridge — powered by Marusya</title><style>' +
     'body{font:13px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:24px;color:#181b26}' +
     'h1{font-size:19px;margin:0 0 4px}p.meta{color:#5b6172;margin:0 0 16px;font-size:12px}' +
     'table{width:100%;border-collapse:collapse;margin-bottom:18px}' +
@@ -739,7 +739,7 @@ function journalHtml(entries, secrets) {
     'footer{margin-top:18px;color:#5b6172;font-size:11px}' +
     '@media print{body{margin:12mm}}' +
     '</style></head><body>' +
-    '<h1>Журнал выполнений — AI Execute Runner</h1>' +
+    '<h1>Журнал выполнений — TerminalBridge — powered by Marusya</h1>' +
     '<p class="meta">Записей: ' + list.length + ' · выгружено: ' + escapeHtml(fmtTime(Date.now())) +
     ' · версия расширения: ' + escapeHtml(ver) + '</p>' +
     (list.length

@@ -1,4 +1,4 @@
-/* AI Execute Runner — стили панели под execute-блоками.
+/* TerminalBridge — powered by Marusya — стили панели под execute-блоками.
  *
  * Панель и модалка живут в ЗАКРЫТОМ shadow root, поэтому:
  *   - токены и базовые элементы приходят из ax-ui.css (подключается @import);

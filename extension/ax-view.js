@@ -1,4 +1,4 @@
-/* AI Execute Runner — ax-view.js
+/* TerminalBridge — powered by Marusya — ax-view.js
  * Всё про view: вставка картинки в поле ввода чата и рендер превью под панелью.
  * Зависит от AX (core) и AXDetector.
  */

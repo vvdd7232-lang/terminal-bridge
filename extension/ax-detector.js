@@ -1,4 +1,4 @@
-/* AI Execute Runner — ax-detector.js
+/* TerminalBridge — powered by Marusya — ax-detector.js
  * Чистые функции детекции: распознавание execute-блоков, сниффер языка,
  * опасные паттерны, нормализация текста. Без побочек и без обращений к chrome.*
  *

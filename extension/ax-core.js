@@ -1,4 +1,4 @@
-/* AI Execute Runner — ax-core.js
+/* TerminalBridge — powered by Marusya — ax-core.js
  * Ядро content-script: namespace AX, настройки, безопасная отправка сообщений,
  * работа с полем ввода чата, тосты, форматирование результата, память выбора
  * среды, история выполнения. Без автопилота и без панели (они в ax-panel.js).

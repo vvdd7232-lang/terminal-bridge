@@ -1,4 +1,4 @@
-/* AI Execute Runner — ax-panel.js
+/* TerminalBridge — powered by Marusya — ax-panel.js
  * Подтверждение запуска, панель под execute-блоком, очередь автозапусков и
  * логика автопилота (дедуп, история, loop-guard, лимиты). Зависит от AX (core)
  * и AXDetector.

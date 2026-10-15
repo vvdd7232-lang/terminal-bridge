@@ -1,4 +1,4 @@
-/* AI Execute Runner — content.js (main orchestrator)
+/* TerminalBridge — powered by Marusya — content.js (main orchestrator)
  * Точка входа content-script'а. Здесь только: защита от двойной загрузки,
  * сканирование страницы, observer, диагностика, индикатор сервера.
  * Вся логика разложена по модулям:
@@ -112,7 +112,7 @@
     const dot = document.createElement('div');
     dot.id = 'ax-server-dot';
     dot.textContent = '⚡ exec: …';
-    dot.title = 'AI Execute Runner: клик — проверить сервер, двойной клик — диагностика блоков';
+    dot.title = 'TerminalBridge — powered by Marusya: клик — проверить сервер, двойной клик — диагностика блоков';
     dot.onclick = checkServer;
     dot.ondblclick = (e) => { e.preventDefault(); debugBlocks(true); };
     (document.body || document.documentElement).appendChild(dot);
@@ -211,7 +211,7 @@
   }
 
   function init() {
-    console.log('[AX] AI Execute Runner загружен на ' + location.hostname);
+    console.log('[AX] TerminalBridge — powered by Marusya загружен на ' + location.hostname);
     window.__axDiag = function () {
       const found = AX.findChatInputDetailed();
       return {

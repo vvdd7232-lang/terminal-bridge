@@ -1,4 +1,6 @@
-# ⚡ AI Execute Runner — ИИ из браузера выполняет команды на твоём ПК
+# ⚡ TerminalBridge — powered by Marusya
+
+> **ИИ из браузера выполняет команды на твоём ПК**
 
 Аналог **Claude Code / Codex**, но прямо в обычных чатах **ChatGPT**, **Claude**, **Arena** и **Google AI Mode** (а также Gemini, Copilot, Grok, DeepSeek и др.):
 
@@ -92,7 +94,7 @@ python server.py
 Должно появиться:
 
 ```
-AI Execute Runner — локальный сервер запущен
+TerminalBridge — powered by Marusya — локальный сервер запущен
 http://127.0.0.1:8765
 ```
 

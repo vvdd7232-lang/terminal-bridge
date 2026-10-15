@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AI Execute Runner",
+  "name": "TerminalBridge — powered by Marusya",
   "version": "2.12.2",
-  "description": "Выполнение команд из execute-блоков ChatGPT / Claude / Arena на локальном ПК. Нейросеть пишет ```execute — вы подтверждаете — команда выполняется локально — вывод возвращается в чат.",
+  "description": "Терминальный мост для ИИ-чатов: выполнение команд на локальном ПК — powered by Marusya",
   "permissions": [
     "storage",
     "activeTab",
@@ -64,7 +64,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AI Execute Runner"
+    "default_title": "TerminalBridge — powered by Marusya"
   },
   "options_ui": {
     "page": "options.html",

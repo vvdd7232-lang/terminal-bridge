@@ -1,4 +1,4 @@
-// AI Execute Runner — background service worker (MV3)
+// TerminalBridge — powered by Marusya — background service worker (MV3)
 // Мост между content-script и локальным сервером http://127.0.0.1:8765
 
 const DEFAULTS = {
