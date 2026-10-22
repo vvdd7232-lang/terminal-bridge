@@ -391,20 +391,12 @@
     } catch (e) { return ''; }
   };
 
-  // Фолбэк-оформление хоста, если внешний CSS не подгрузился (например, тесты
-  // в jsdom): берём вычисленные стили с уже стилизованного хоста.
+  // Базовое оформление хоста внутри shadow root с гарантированным сбросом box-sizing
+  // и системным шрифтом (не вызываем getComputedStyle на неотсоединённом узле, чтобы не
+  // подхватывать serif/Times New Roman и нулевые границы).
   function panelShadowCss(host) {
-    let base = 'display:block;';
-    try {
-      const cs = window.getComputedStyle(host);
-      if (cs) {
-        base = 'display:block;color:' + cs.color + ';background:' + cs.backgroundColor +
-               ';border:' + cs.borderTopWidth + ' ' + cs.borderTopStyle + ' ' + cs.borderTopColor +
-               ';border-radius:' + cs.borderTopLeftRadius + ';padding:' + cs.padding +
-               ';font-size:' + cs.fontSize + ';font-family:' + cs.fontFamily + ';';
-      }
-    } catch (e) { /* ignore */ }
-    return ':host{' + base + '}';
+    return ':host { display: block; box-sizing: border-box; width: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.45; text-align: left; }\n' +
+           ':host *, :host *::before, :host *::after { box-sizing: border-box; }\n';
   }
 
   // Создаёт host + закрытый shadow root и проксирует DOM-запросы, чтобы
@@ -605,7 +597,9 @@
       const text = box.querySelector('.ax-preview-text');
       const hint = box.querySelector('.ax-preview-hint');
       if (!text) return;
-      const cmd = previewCmd || '';
+      const live = (pre && pre.isConnected ? D.getCodeText(pre) : '') || previewCmd || '';
+      previewCmd = live;
+      const cmd = live;
       const lines = cmd.split('\n');
       const multi = lines.length > 1;
       // Сколько строк показывать в развёрнутом виде: настройка previewLines,
@@ -965,6 +959,7 @@
         try {
           if (autoCancelled) { finQ(); return; }
           const cmd = (settled || '').trim();
+          refreshPreview(cmd);
           if (!cmd) {
             stopAutoTimer('Пустая команда — пропуск.');
             autoHandle.finish();

@@ -167,6 +167,10 @@
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  text-decoration: none;
+  user-select: none;
   transition: background var(--ax-dur) var(--ax-ease), border-color var(--ax-dur) var(--ax-ease),
     color var(--ax-dur) var(--ax-ease), box-shadow var(--ax-dur) var(--ax-ease), transform var(--ax-dur) var(--ax-ease);
 }
@@ -406,6 +410,11 @@
   stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.ax-btn .ax-ico {
+  vertical-align: middle;
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

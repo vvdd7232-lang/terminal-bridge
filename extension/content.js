@@ -62,10 +62,20 @@
       }
       try {
         // Повторный рендер чата создаёт НОВЫЙ <pre> под тот же блок — старая
-        // панель оставалась в DOM навсегда. Убираем осиротевшую перед вставкой.
-        const stale = pre.nextElementSibling;
-        if (stale && stale.classList && stale.classList.contains('ax-exec-panel')) {
-          stale.remove();
+        // панель оставалась в DOM навсегда. Убираем любые осиротевшие панели перед вставкой.
+        let sib = pre.nextElementSibling;
+        while (sib && sib.classList && (sib.classList.contains('ax-exec-panel') || sib.classList.contains('ax-panel-host'))) {
+          const next = sib.nextElementSibling;
+          sib.remove();
+          sib = next;
+        }
+        if (pre.parentElement) {
+          const orphaned = pre.parentElement.querySelectorAll(':scope > .ax-exec-panel');
+          for (const op of orphaned) {
+            if (!op.previousElementSibling || op.previousElementSibling.tagName !== 'PRE') {
+              op.remove();
+            }
+          }
         }
         const panel = AX.buildPanel(pre, info, command, { weak, forced: force });
         pre.insertAdjacentElement('afterend', panel);
