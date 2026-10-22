@@ -21,15 +21,21 @@
     background: var(--ax-surface);
   }
   .mark {
-    display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto;
-    border-radius: 10px; background: linear-gradient(140deg, var(--ax-accent), var(--ax-accent-strong));
-    color: var(--ax-on-accent); box-shadow: var(--ax-shadow-1);
+    display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto;
+    border-radius: var(--ax-r-sm); background: linear-gradient(135deg, var(--ax-accent), var(--ax-accent-strong));
+    color: var(--ax-on-accent); box-shadow: 0 4px 12px var(--ax-accent-soft);
   }
-  .mark svg { width: 17px; height: 17px; }
+  .mark svg { width: 18px; height: 18px; }
   .head-text { min-width: 0; }
-  .head-text b { display: block; font-size: var(--ax-fs-lg); font-weight: 700; letter-spacing: -0.01em; }
+  .head-text b { display: flex; align-items: center; gap: 6px; font-size: var(--ax-fs-lg); font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+  .powered-badge {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 2px 6px; border-radius: var(--ax-r-pill);
+    background: var(--ax-accent-soft); color: var(--ax-accent-strong);
+    display: inline-block; vertical-align: middle;
+  }
   .head-text span { font-size: var(--ax-fs-xs); color: var(--ax-text-muted); }
-  .head .ver { margin-left: auto; font-size: var(--ax-fs-xs); color: var(--ax-text-faint); }
+  .head .ver { margin-left: auto; font-size: var(--ax-fs-xs); color: var(--ax-text-faint); font-weight: 600; }
 
   main { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: var(--ax-s-3); }
   section { display: flex; flex-direction: column; gap: var(--ax-s-2); }
@@ -46,15 +52,17 @@
     padding: 10px 12px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
     background: var(--ax-surface); color: var(--ax-text-muted); font-size: var(--ax-fs-sm);
     box-shadow: var(--ax-shadow-1);
+    transition: all var(--ax-dur) var(--ax-ease);
   }
   #status::before {
     content: ""; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
     background: var(--ax-text-faint);
+    transition: all var(--ax-dur) var(--ax-ease);
   }
-  #status.ok { color: var(--ax-success); }
-  #status.ok::before { background: var(--ax-success); box-shadow: 0 0 0 3px var(--ax-success-soft); }
-  #status.err { color: var(--ax-danger); }
-  #status.err::before { background: var(--ax-danger); box-shadow: 0 0 0 3px var(--ax-danger-soft); }
+  #status.ok { color: var(--ax-success); border-color: rgba(15, 157, 88, 0.25); background: var(--ax-success-soft); }
+  #status.ok::before { background: var(--ax-success); box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.25); }
+  #status.err { color: var(--ax-danger); border-color: rgba(217, 45, 32, 0.25); background: var(--ax-danger-soft); }
+  #status.err::before { background: var(--ax-danger); box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.25); }
   #status b { font-weight: 650; }
 
   /* Поля */
@@ -146,7 +154,7 @@
 <div class="head">
   <span class="mark"><svg><use href="#i-bolt"></use></svg></span>
   <span class="head-text">
-    <b>TerminalBridge <small style="font-weight:400;opacity:0.85;font-size:10px">— powered by Marusya</small></b>
+    <b>TerminalBridge <span class="powered-badge">by Marusya</span></b>
     <span>локальный запуск команд из чата</span>
   </span>
   <span class="ver" id="ver">…</span>

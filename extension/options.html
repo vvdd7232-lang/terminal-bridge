@@ -97,17 +97,19 @@
     padding: 11px 14px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
     background: var(--ax-surface); color: var(--ax-text-muted);
     font-size: var(--ax-fs-sm); box-shadow: var(--ax-shadow-1);
+    transition: all var(--ax-dur) var(--ax-ease);
   }
   #status::before {
-    content: ""; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+    content: ""; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
     background: var(--ax-text-faint);
+    transition: all var(--ax-dur) var(--ax-ease);
   }
-  #status.ok { color: var(--ax-success); }
-  #status.ok::before { background: var(--ax-success); }
-  #status.err { color: var(--ax-danger); }
-  #status.err::before { background: var(--ax-danger); }
-  #status.warn { color: var(--ax-warn); }
-  #status.warn::before { background: var(--ax-warn); }
+  #status.ok { color: var(--ax-success); border-color: rgba(15, 157, 88, 0.25); background: var(--ax-success-soft); }
+  #status.ok::before { background: var(--ax-success); box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.25); }
+  #status.err { color: var(--ax-danger); border-color: rgba(217, 45, 32, 0.25); background: var(--ax-danger-soft); }
+  #status.err::before { background: var(--ax-danger); box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.25); }
+  #status.warn { color: var(--ax-warn); border-color: rgba(181, 71, 8, 0.25); background: var(--ax-warn-soft); }
+  #status.warn::before { background: var(--ax-warn); box-shadow: 0 0 0 3px rgba(181, 71, 8, 0.25); }
 
   /* Карточки-разделы */
   details.card {
