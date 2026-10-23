@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TerminalBridge — powered by Marusya",
-  "version": "2.12.4",
+  "version": "2.12.5",
   "description": "Терминальный мост для ИИ-чатов: выполнение команд на локальном ПК — powered by Marusya",
   "permissions": [
     "storage",
