@@ -88,6 +88,16 @@ if os.path.isfile(notes_src):
     shutil.copyfile(notes_src, notes_dst)
     print(f"==> Copied release notes to {os.path.basename(notes_dst)}")
 
+# 6. Screenshots archive and individual images
+screenshots_dir = os.path.join(ROOT, 'docs', 'screenshots')
+if os.path.isdir(screenshots_dir):
+    screenshots_zip = os.path.join(DIST_DIR, f"terminal-bridge-{VERSION}-screenshots.zip")
+    print(f"==> Packaging Screenshots: {os.path.basename(screenshots_zip)}")
+    zip_dir(screenshots_dir, screenshots_zip)
+    for s_name in sorted(os.listdir(screenshots_dir)):
+        if s_name.endswith('.png'):
+            shutil.copyfile(os.path.join(screenshots_dir, s_name), os.path.join(DIST_DIR, s_name))
+
 print("\n==> Dist artifacts created successfully:")
 for name in sorted(os.listdir(DIST_DIR)):
     size = os.path.getsize(os.path.join(DIST_DIR, name))

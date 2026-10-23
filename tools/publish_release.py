@@ -122,7 +122,7 @@ def publish():
         print(f"    Warning checking assets: {e}")
 
     for file_name in sorted(os.listdir(DIST_DIR)):
-        if not (file_name.endswith('.zip') or file_name.endswith('.xpi')):
+        if not (file_name.endswith('.zip') or file_name.endswith('.xpi') or file_name.endswith('.png')):
             continue
         full_path = os.path.join(DIST_DIR, file_name)
         if file_name in existing_assets:
@@ -135,9 +135,10 @@ def publish():
 
         enc_name = urllib.parse.quote(file_name)
         upload_url = f"https://uploads.github.com/repos/{REPO}/releases/{release_id}/assets?name={enc_name}"
+        content_type = 'image/png' if file_name.endswith('.png') else 'application/octet-stream'
         try:
             api_request(upload_url, method='POST', data=raw_bytes,
-                        headers={'Content-Type': 'application/octet-stream'}, token=token)
+                        headers={'Content-Type': content_type}, token=token)
             print(f"    Uploaded {file_name} successfully.")
         except Exception as e:
             print(f"    Error uploading {file_name}: {e}")
