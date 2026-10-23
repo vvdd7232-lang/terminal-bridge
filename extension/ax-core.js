@@ -44,12 +44,13 @@
     previewLines: 12,
     paletteEnabled: true,
     noisyCollapse: true,
-    // Внешний вид (экспериментально): палитра, скругление, стиль кнопок, плотность
+    // Внешний вид (экспериментально): палитра, скругление, стиль кнопок, плотность, стиль
     uiPalette: 'indigo',
     uiRadius: 'soft',
     uiBtnStyle: 'soft',
     catMode: false,
     uiDensity: 'normal',
+    uiStyle: 'linear',
   };
   AX.settings = { ...AX.DEFAULTS };
 
@@ -1129,6 +1130,7 @@ const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset', 'amethyst'];
 const UI_RADII = ['none', 'sharp', 'soft', 'round', 'pill'];
 const UI_BTN_STYLES = ['soft', 'solid', 'outline', 'flat', 'tile'];
 const UI_DENSITIES = ['compact', 'normal', 'spacious'];
+const UI_STYLES = ['linear', 'warp', 'glass', 'default'];
 
 function axUiAttr(el, name, value, allowed, fallback) {
   try {
@@ -1146,6 +1148,7 @@ AX.applyUiTuning = function (el) {
   axUiAttr(el, 'data-ax-radius', s.uiRadius, UI_RADII, 'soft');
   axUiAttr(el, 'data-ax-btn', s.uiBtnStyle, UI_BTN_STYLES, 'soft');
   axUiAttr(el, 'data-ax-density', s.uiDensity, UI_DENSITIES, 'normal');
+  axUiAttr(el, 'data-ax-style', s.uiStyle, UI_STYLES, 'linear');
   try {
     if (s.catMode) el.setAttribute('data-ax-cat', 'on');
     else el.removeAttribute('data-ax-cat');
@@ -1156,6 +1159,7 @@ AX.UI_PALETTES = UI_PALETTES;
 AX.UI_RADII = UI_RADII;
 AX.UI_BTN_STYLES = UI_BTN_STYLES;
 AX.UI_DENSITIES = UI_DENSITIES;
+AX.UI_STYLES = UI_STYLES;
 
 AX.applyPanelAppearance = function (panel) {
     try {

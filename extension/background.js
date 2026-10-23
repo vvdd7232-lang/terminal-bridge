@@ -31,6 +31,7 @@ const DEFAULTS = {
   uiRadius: 'soft',             // скругление: none | sharp | soft | round | pill
   uiBtnStyle: 'soft',           // кнопки: soft | solid | outline | flat | tile
   uiDensity: 'normal',          // плотность: compact | normal | spacious
+  uiStyle: 'linear',            // стиль: linear | warp | glass
   catMode: false,               // кото-тема: ушки на кнопках, лапки у панели, хвостик у модалок
 };
 

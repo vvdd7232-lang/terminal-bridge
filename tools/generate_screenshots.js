@@ -9,81 +9,9 @@ if (!fs.existsSync(OUT_DIR)) {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 }
 
-async function render() {
-  const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/chromium',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--force-color-profile=srgb'],
-    defaultViewport: null
-  });
-
-  try {
-    // 1. Popup Screenshot
-    console.log('Rendering popup.png...');
-    const pagePopup = await browser.newPage();
-    await pagePopup.setViewport({ width: 360, height: 600, deviceScaleFactor: 2 });
-    
-    // Inject mock before script runs
-    await pagePopup.evaluateOnNewDocument(() => {
-      window.chrome = {
-        runtime: {
-          getManifest: () => ({ version: '2.12.3' }),
-          sendMessage: (msg) => {
-            if (msg.type === 'AX_PING') {
-              return Promise.resolve({
-                ok: true,
-                info: { version: '2.12.3', platform: 'Linux', cwd: '/home/user/project' }
-              });
-            }
-            return Promise.resolve({ ok: true });
-          }
-        },
-        storage: {
-          sync: {
-            get: (keys, cb) => {
-              const data = {
-                serverUrl: 'http://127.0.0.1:8765',
-                timeout: 30,
-                requireConfirm: true,
-                autoExecute: false,
-                autoInsert: false,
-                autoSend: false,
-                autoDelay: 3
-              };
-              cb ? cb(data) : null;
-              return Promise.resolve(data);
-            },
-            set: (items, cb) => { cb && cb(); return Promise.resolve(); }
-          },
-          local: {
-            get: (keys, cb) => cb ? cb({}) : Promise.resolve({}),
-            set: (items, cb) => cb && cb()
-          }
-        }
-      };
-    });
-
-    await pagePopup.goto('file://' + path.join(ROOT, 'extension', 'popup.html'), { waitUntil: 'networkidle0' });
-    await pagePopup.evaluate(() => {
-      const st = document.getElementById('status');
-      if (st) {
-        st.className = 'status ok';
-        st.textContent = 'Сервер v2.12.3 на связи (порт 8765)';
-      }
-      const ver = document.getElementById('ver');
-      if (ver) ver.textContent = 'v2.12.3';
-    });
-    await new Promise(r => setTimeout(r, 400));
-    await pagePopup.screenshot({
-      path: path.join(OUT_DIR, 'popup.png'),
-      clip: { x: 0, y: 0, width: 340, height: 580 }
-    });
-    await pagePopup.close();
-
-    // 2. Chat Panel Screenshot (Dark AI Chat with attached Execution Panel)
-    console.log('Rendering chat-panel.png...');
-    const chatHtmlPath = path.join(ROOT, 'tools', '_mock_chat.html');
-    const mockChatHtml = `<!DOCTYPE html>
-<html lang="ru" data-ax-theme="dark">
+function makeMockChat(styleName, title) {
+  return `<!DOCTYPE html>
+<html lang="ru" data-ax-theme="dark" data-ax-style="${styleName}">
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="../extension/ax-ui.css">
@@ -91,7 +19,7 @@ async function render() {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: #18191e;
+    background: #0d0f17;
     color: #ececf1;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     padding: 32px 24px;
@@ -100,7 +28,7 @@ async function render() {
   }
   .chat-wrap {
     width: 100%;
-    max-width: 820px;
+    max-width: 840px;
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -110,11 +38,16 @@ async function render() {
     align-items: center;
     justify-content: space-between;
     padding-bottom: 16px;
-    border-bottom: 1px solid #2d2f39;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     color: #9aa0a6;
     font-size: 14px;
   }
-  .chat-header b { color: #fff; font-size: 16px; }
+  .chat-header b { color: #fff; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .chat-header .badge {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px; background: rgba(99, 102, 241, 0.15); color: #818cf8;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+  }
   .msg {
     display: flex;
     gap: 16px;
@@ -123,7 +56,8 @@ async function render() {
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: #343541;
+    background: #1f2333;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -132,8 +66,9 @@ async function render() {
     flex-shrink: 0;
   }
   .avatar.ai {
-    background: linear-gradient(135deg, #10a37f, #0d8a6a);
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
     color: #fff;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
   }
   .msg-body {
     flex: 1;
@@ -141,14 +76,15 @@ async function render() {
     font-size: 15px;
   }
   .user-msg {
-    background: #23252e;
+    background: #161a29;
     padding: 14px 18px;
     border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
   .code-container {
     margin-top: 12px;
-    background: #0f1220;
-    border: 1px solid #2b3040;
+    background: #08090f;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
     overflow: hidden;
   }
@@ -156,10 +92,11 @@ async function render() {
     display: flex;
     justify-content: space-between;
     padding: 8px 14px;
-    background: #151928;
+    background: #111420;
     color: #8b949e;
     font-size: 12px;
     font-family: monospace;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
   .code-content {
     padding: 14px;
@@ -168,31 +105,14 @@ async function render() {
     color: #f0f6fc;
     line-height: 1.5;
   }
-  /* Shadow DOM host simulation in demo */
-  .ax-panel-demo {
-    margin-top: 10px;
-    background: var(--ax-surface);
-    border: 1px solid var(--ax-border);
-    border-radius: var(--ax-r-md);
-    position: relative;
-    overflow: hidden;
-    box-shadow: var(--ax-shadow-2);
-  }
-  .ax-panel-demo::before {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 3px;
-    background: linear-gradient(180deg, var(--ax-accent), var(--ax-accent-strong));
-  }
 </style>
 </head>
-<body class="ax-ui" data-ax-theme="dark">
+<body class="ax-ui" data-ax-theme="dark" data-ax-style="${styleName}">
 
 <div class="chat-wrap">
   <div class="chat-header">
-    <b>AI Chat · Проверка окружения</b>
-    <span>GPT-4o / Claude 3.5 Sonnet</span>
+    <b>AI Chat · TerminalBridge <span class="badge">${title}</span></b>
+    <span>GPT-4o · Claude 3.5 Sonnet</span>
   </div>
 
   <div class="msg">
@@ -203,20 +123,20 @@ async function render() {
   </div>
 
   <div class="msg">
-    <div class="avatar ai">AI</div>
+    <div class="avatar ai">⚡</div>
     <div class="msg-body">
-      Конечно! Вот команда для проверки текущего статуса git и запуска проверок дизайн-системы:
+      Выполняю команду для проверки состояния репозитория и запуска проверок дизайн-системы:
       
       <div class="code-container">
         <div class="code-header">
           <span>bash · execute</span>
-          <span>Копировать код</span>
+          <span>Копировать</span>
         </div>
         <div class="code-content">git status -s &amp;&amp; npm test</div>
       </div>
 
       <!-- Execution Panel Attached -->
-      <div class="ax-exec-panel ax-panel-demo">
+      <div class="ax-exec-panel" data-ax-style="${styleName}">
         <div class="ax-shadow-content">
           <div class="ax-exec-header">
             <span class="ax-exec-badge">
@@ -264,7 +184,7 @@ M  extension/popup.html
               <svg class="ax-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
               Вставить вывод в чат
             </button>
-            <button class="ax-btn ax-btn-copy-out">
+            <button class="ax-btn ax-btn-copy ax-btn-copy-out">
               <svg class="ax-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 9h10v10H9zM5 15V5h10"/></svg>
               Копировать результат
             </button>
@@ -281,21 +201,121 @@ M  extension/popup.html
 
 </body>
 </html>`;
+}
 
-    fs.writeFileSync(chatHtmlPath, mockChatHtml, 'utf8');
+async function render() {
+  const browser = await puppeteer.launch({
+    executablePath: '/usr/bin/chromium',
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--force-color-profile=srgb'],
+    defaultViewport: null
+  });
 
-    const pageChat = await browser.newPage();
-    await pageChat.setViewport({ width: 1040, height: 740, deviceScaleFactor: 2 });
-    await pageChat.goto('file://' + chatHtmlPath, { waitUntil: 'networkidle0' });
-    await new Promise(r => setTimeout(r, 400));
-    await pageChat.screenshot({
-      path: path.join(OUT_DIR, 'chat-panel.png'),
-      clip: { x: 40, y: 10, width: 960, height: 710 }
+  try {
+    // 1. Popup Screenshot
+    console.log('Rendering popup.png...');
+    const pagePopup = await browser.newPage();
+    await pagePopup.setViewport({ width: 370, height: 640, deviceScaleFactor: 2 });
+    
+    await pagePopup.evaluateOnNewDocument(() => {
+      window.chrome = {
+        runtime: {
+          getManifest: () => ({ version: '2.12.3' }),
+          sendMessage: (msg) => {
+            if (msg.type === 'AX_PING') {
+              return Promise.resolve({
+                ok: true,
+                info: { version: '2.12.3', platform: 'Linux', cwd: '/home/user/project' }
+              });
+            }
+            return Promise.resolve({ ok: true });
+          }
+        },
+        storage: {
+          sync: {
+            get: (keys, cb) => {
+              const data = {
+                serverUrl: 'http://127.0.0.1:8765',
+                timeout: 30,
+                requireConfirm: true,
+                autoExecute: false,
+                autoInsert: false,
+                autoSend: false,
+                autoDelay: 3,
+                uiStyle: 'linear'
+              };
+              cb ? cb(data) : null;
+              return Promise.resolve(data);
+            },
+            set: (items, cb) => { cb && cb(); return Promise.resolve(); }
+          },
+          local: {
+            get: (keys, cb) => cb ? cb({}) : Promise.resolve({}),
+            set: (items, cb) => cb && cb()
+          }
+        }
+      };
     });
-    await pageChat.close();
+
+    await pagePopup.goto('file://' + path.join(ROOT, 'extension', 'popup.html'), { waitUntil: 'networkidle0' });
+    await pagePopup.evaluate(() => {
+      const st = document.getElementById('status');
+      if (st) {
+        st.className = 'status ok';
+        st.textContent = 'Сервер v2.12.3 на связи (порт 8765)';
+      }
+      const ver = document.getElementById('ver');
+      if (ver) ver.textContent = 'v2.12.3';
+    });
+    await new Promise(r => setTimeout(r, 400));
+    await pagePopup.screenshot({
+      path: path.join(OUT_DIR, 'popup.png'),
+      clip: { x: 0, y: 0, width: 350, height: 620 }
+    });
+    await pagePopup.close();
+
+    // 2. Chat Panel — Style 1: Linear / Vercel
+    console.log('Rendering chat-panel.png (Linear)...');
+    const chatHtmlPath = path.join(ROOT, 'tools', '_mock_chat.html');
+    fs.writeFileSync(chatHtmlPath, makeMockChat('linear', 'Стиль Linear'), 'utf8');
+
+    const pageChat1 = await browser.newPage();
+    await pageChat1.setViewport({ width: 1040, height: 750, deviceScaleFactor: 2 });
+    await pageChat1.goto('file://' + chatHtmlPath, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 400));
+    await pageChat1.screenshot({
+      path: path.join(OUT_DIR, 'chat-panel.png'),
+      clip: { x: 40, y: 10, width: 960, height: 720 }
+    });
+    await pageChat1.close();
+
+    // 3. Chat Panel — Style 2: Warp Terminal
+    console.log('Rendering chat-warp.png (Warp)...');
+    fs.writeFileSync(chatHtmlPath, makeMockChat('warp', 'Стиль Warp Terminal'), 'utf8');
+    const pageChat2 = await browser.newPage();
+    await pageChat2.setViewport({ width: 1040, height: 750, deviceScaleFactor: 2 });
+    await pageChat2.goto('file://' + chatHtmlPath, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 400));
+    await pageChat2.screenshot({
+      path: path.join(OUT_DIR, 'chat-warp.png'),
+      clip: { x: 40, y: 10, width: 960, height: 720 }
+    });
+    await pageChat2.close();
+
+    // 4. Chat Panel — Style 3: Raycast Glass
+    console.log('Rendering chat-glass.png (Glass)...');
+    fs.writeFileSync(chatHtmlPath, makeMockChat('glass', 'Стиль Raycast Glass'), 'utf8');
+    const pageChat3 = await browser.newPage();
+    await pageChat3.setViewport({ width: 1040, height: 750, deviceScaleFactor: 2 });
+    await pageChat3.goto('file://' + chatHtmlPath, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 400));
+    await pageChat3.screenshot({
+      path: path.join(OUT_DIR, 'chat-glass.png'),
+      clip: { x: 40, y: 10, width: 960, height: 720 }
+    });
+    await pageChat3.close();
     fs.unlinkSync(chatHtmlPath);
 
-    // 3. Options Screenshot
+    // 5. Options Screenshot
     console.log('Rendering options.png...');
     const pageOptions = await browser.newPage();
     await pageOptions.setViewport({ width: 1200, height: 860, deviceScaleFactor: 2 });
@@ -326,6 +346,7 @@ M  extension/popup.html
                 autoInsert: true,
                 autoSend: false,
                 autoDelay: 3,
+                uiStyle: 'linear',
                 uiPalette: 'indigo',
                 uiRadius: 'round',
                 uiBtnStyle: 'solid',
@@ -360,7 +381,7 @@ M  extension/popup.html
       clip: { x: 0, y: 0, width: 1200, height: 840 }
     });
 
-    // 4. Appearance Tuning Screenshot
+    // 6. Appearance Tuning Screenshot
     console.log('Rendering appearance.png...');
     await pageOptions.evaluate(() => {
       const lookCard = document.getElementById('sec-look');
@@ -371,7 +392,6 @@ M  extension/popup.html
         const moreBtn = document.getElementById('uiMoreBtn');
         if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
       }
-      // Temporarily unstick topbar and actionbar for clean card screenshot
       const topbar = document.querySelector('.topbar');
       if (topbar) topbar.style.position = 'static';
       const actionbar = document.querySelector('.actionbar');

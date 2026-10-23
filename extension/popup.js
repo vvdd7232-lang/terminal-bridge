@@ -43,7 +43,7 @@ function clamp(v, lo, hi, fb) {
 async function load() {
   let d;
   try {
-    d = await axStorageGet('sync', ['serverUrl', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay']);
+    d = await axStorageGet('sync', ['serverUrl', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay', 'uiStyle']);
   } catch {
     $('status').className = 'status err';
     $('status').textContent = '❌ Не удалось прочитать настройки (расширение обновляется? закрой попап и открой заново)';
@@ -56,10 +56,36 @@ async function load() {
   $('autoInsert').checked = d.autoInsert === true;
   $('autoSend').checked = d.autoSend === true;
   if (d.autoDelay != null) $('autoDelay').value = d.autoDelay;
+  
+  // Стиль оформления
+  initStyleSwitcher(d.uiStyle || 'linear');
+
   loaded = true;
   updateWarn();
   try { $('ver').textContent = 'v' + axApi.runtime.getManifest().version; } catch {}
   ping();
+}
+
+function initStyleSwitcher(currentStyle) {
+  const seg = $('uiStyleSeg');
+  if (!seg) return;
+  const setStyle = (style) => {
+    document.documentElement.setAttribute('data-ax-style', style);
+    const btns = seg.querySelectorAll('.style-btn');
+    btns.forEach((b) => b.classList.toggle('active', b.getAttribute('data-v') === style));
+  };
+  setStyle(currentStyle);
+
+  seg.onclick = async (e) => {
+    const btn = e.target.closest('.style-btn');
+    if (!btn) return;
+    const style = btn.getAttribute('data-v');
+    if (!style) return;
+    setStyle(style);
+    try {
+      await axStorageSet('sync', { uiStyle: style });
+    } catch (e) { /* ignore */ }
+  };
 }
 
 async function ping() {

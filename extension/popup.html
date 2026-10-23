@@ -7,7 +7,7 @@
 <style>
   * { box-sizing: border-box; }
   body {
-    width: 340px; margin: 0;
+    width: 350px; margin: 0;
     background: var(--ax-bg); color: var(--ax-text);
     font-family: var(--ax-font); font-size: var(--ax-fs-md); line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -15,41 +15,75 @@
 
   /* Шапка */
   .head {
-    display: flex; align-items: center; gap: 10px;
-    padding: 14px 14px 12px;
+    display: flex; align-items: center; gap: 11px;
+    padding: 14px 16px 12px;
     border-bottom: 1px solid var(--ax-border);
     background: var(--ax-surface);
+    position: relative;
   }
   .mark {
-    display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto;
-    border-radius: var(--ax-r-sm); background: linear-gradient(135deg, var(--ax-accent), var(--ax-accent-strong));
-    color: var(--ax-on-accent); box-shadow: 0 4px 12px var(--ax-accent-soft);
+    display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto;
+    border-radius: var(--ax-r-sm);
+    background: linear-gradient(135deg, var(--ax-accent), var(--ax-accent-strong));
+    color: var(--ax-on-accent);
+    box-shadow: 0 4px 14px var(--ax-accent-soft);
   }
-  .mark svg { width: 18px; height: 18px; }
+  .mark svg { width: 19px; height: 19px; }
   .head-text { min-width: 0; }
-  .head-text b { display: flex; align-items: center; gap: 6px; font-size: var(--ax-fs-lg); font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+  .head-text b {
+    display: flex; align-items: center; gap: 6px;
+    font-size: var(--ax-fs-lg); font-weight: 700;
+    letter-spacing: -0.01em; line-height: 1.2;
+  }
   .powered-badge {
     font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-    padding: 2px 6px; border-radius: var(--ax-r-pill);
+    padding: 2px 7px; border-radius: var(--ax-r-pill);
     background: var(--ax-accent-soft); color: var(--ax-accent-strong);
     display: inline-block; vertical-align: middle;
   }
   .head-text span { font-size: var(--ax-fs-xs); color: var(--ax-text-muted); }
-  .head .ver { margin-left: auto; font-size: var(--ax-fs-xs); color: var(--ax-text-faint); font-weight: 600; }
+  .head .ver { margin-left: auto; font-size: var(--ax-fs-xs); color: var(--ax-text-faint); font-weight: 600; font-family: var(--ax-font-mono); }
 
-  main { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: var(--ax-s-3); }
+  /* Переключатель стилей */
+  .style-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; background: var(--ax-surface-2);
+    border-bottom: 1px solid var(--ax-border);
+    font-size: var(--ax-fs-xs);
+  }
+  .style-bar-title { color: var(--ax-text-muted); font-weight: 600; }
+  .style-seg {
+    display: inline-flex; gap: 3px; padding: 2px;
+    background: var(--ax-surface-3); border-radius: var(--ax-r-pill);
+    border: 1px solid var(--ax-border);
+  }
+  .style-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border: none; background: transparent;
+    color: var(--ax-text-muted); font-size: 10.5px; font-weight: 600;
+    border-radius: var(--ax-r-pill); cursor: pointer;
+    transition: all var(--ax-dur) var(--ax-ease);
+  }
+  .style-btn svg { width: 11px; height: 11px; }
+  .style-btn:hover { color: var(--ax-text); }
+  .style-btn.active {
+    background: var(--ax-surface); color: var(--ax-accent-strong);
+    box-shadow: var(--ax-shadow-1);
+  }
+
+  main { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: var(--ax-s-3); }
   section { display: flex; flex-direction: column; gap: var(--ax-s-2); }
   h3 {
     display: flex; align-items: center; gap: 7px;
     margin: 0; font-size: var(--ax-fs-xs); font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.07em; color: var(--ax-text-faint);
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--ax-text-faint);
   }
   h3 svg { width: 13px; height: 13px; }
 
   /* Статус сервера */
   #status {
     display: flex; align-items: center; gap: 9px;
-    padding: 10px 12px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
+    padding: 10px 13px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
     background: var(--ax-surface); color: var(--ax-text-muted); font-size: var(--ax-fs-sm);
     box-shadow: var(--ax-shadow-1);
     transition: all var(--ax-dur) var(--ax-ease);
@@ -59,18 +93,32 @@
     background: var(--ax-text-faint);
     transition: all var(--ax-dur) var(--ax-ease);
   }
-  #status.ok { color: var(--ax-success); border-color: rgba(15, 157, 88, 0.25); background: var(--ax-success-soft); }
-  #status.ok::before { background: var(--ax-success); box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.25); }
-  #status.err { color: var(--ax-danger); border-color: rgba(217, 45, 32, 0.25); background: var(--ax-danger-soft); }
-  #status.err::before { background: var(--ax-danger); box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.25); }
+  #status.ok {
+    color: var(--ax-success);
+    border-color: rgba(15, 157, 88, 0.28);
+    background: var(--ax-success-soft);
+  }
+  #status.ok::before {
+    background: var(--ax-success);
+    box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.25);
+    animation: ax-pulse 2.4s ease-in-out infinite;
+  }
+  #status.err {
+    color: var(--ax-danger);
+    border-color: rgba(217, 45, 32, 0.28);
+    background: var(--ax-danger-soft);
+  }
+  #status.err::before {
+    background: var(--ax-danger);
+    box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.25);
+  }
   #status b { font-weight: 650; }
 
   /* Поля */
   .row { display: flex; flex-direction: column; gap: 4px; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ax-s-2); }
   label { font-size: var(--ax-fs-xs); font-weight: 650; color: var(--ax-text-muted); }
-  input[type=text], input[type=number], input[type=password] {
-    width: 100%; padding: 8px 10px;
+  input[type=text], input[type=number] {
+    width: 100%; padding: 8px 11px;
     border: 1px solid var(--ax-border-strong); border-radius: var(--ax-r-sm);
     background: var(--ax-surface); color: var(--ax-text); font: inherit; font-size: var(--ax-fs-sm);
     transition: border-color var(--ax-dur) var(--ax-ease), box-shadow var(--ax-dur) var(--ax-ease);
@@ -79,13 +127,14 @@
 
   /* Переключатели-строки */
   .check {
-    display: flex; gap: 10px; align-items: center;
-    padding: 9px 11px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
+    display: flex; gap: 11px; align-items: center;
+    padding: 10px 12px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
     background: var(--ax-surface); cursor: pointer;
-    transition: border-color var(--ax-dur) var(--ax-ease);
+    box-shadow: var(--ax-shadow-1);
+    transition: border-color var(--ax-dur) var(--ax-ease), transform var(--ax-dur) var(--ax-ease);
   }
   .check:hover { border-color: var(--ax-border-strong); }
-  .check .txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+  .check .txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
   .check .txt b { font-size: var(--ax-fs-sm); font-weight: 650; }
   .check .txt i { font-style: normal; font-size: var(--ax-fs-xs); color: var(--ax-text-muted); }
   .check input[type=checkbox] {
@@ -100,37 +149,39 @@
     width: 15px; height: 15px; border-radius: 50%; background: var(--ax-knob);
     box-shadow: var(--ax-shadow-1); transition: transform var(--ax-dur) var(--ax-ease);
   }
-  .check input[type=checkbox]:checked { background: var(--ax-accent); border-color: transparent; }
+  .check input[type=checkbox]:checked {
+    background: var(--ax-accent); border-color: transparent;
+    box-shadow: 0 0 10px -2px var(--ax-accent-soft);
+  }
   .check input[type=checkbox]:checked::after { transform: translateX(15px); }
   .check input[type=checkbox]:focus-visible { outline: 2px solid var(--ax-accent); outline-offset: 2px; }
-  /* Дочерние переключатели автопилота — с отступом, чтобы читалась иерархия */
   .check.sub { padding-left: 18px; background: var(--ax-surface-2); }
 
   #autoWarn {
     display: none; gap: 8px; align-items: flex-start;
-    padding: 9px 11px; border: 1px solid var(--ax-warn); border-radius: var(--ax-r-md);
+    padding: 10px 12px; border: 1px solid var(--ax-warn); border-radius: var(--ax-r-md);
     background: var(--ax-warn-soft); color: var(--ax-warn); font-size: var(--ax-fs-xs); line-height: 1.45;
   }
   #autoWarn svg { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 1px; }
 
   /* Кнопки */
-  .actions { display: flex; flex-direction: column; gap: var(--ax-s-2); }
+  .actions { display: flex; flex-direction: column; gap: var(--ax-s-2); margin-top: 2px; }
   .btn-row { display: flex; gap: var(--ax-s-2); }
   .ax-btn svg { width: 15px; height: 15px; }
 
   .steps {
-    display: flex; flex-direction: column; gap: 5px;
-    padding: 11px 12px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px 14px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
     background: var(--ax-surface); font-size: var(--ax-fs-xs); color: var(--ax-text-muted);
   }
-  .steps span { display: flex; gap: 7px; align-items: baseline; }
+  .steps span { display: flex; gap: 8px; align-items: baseline; }
   .steps i {
     font-style: normal; font-weight: 700; color: var(--ax-accent-strong);
     min-width: 12px;
   }
   .steps code {
     font-family: var(--ax-font-mono); background: var(--ax-surface-2);
-    border: 1px solid var(--ax-border); border-radius: 5px; padding: 0 4px; color: var(--ax-text);
+    border: 1px solid var(--ax-border); border-radius: 5px; padding: 0 5px; color: var(--ax-text);
   }
 </style>
 </head>
@@ -148,6 +199,8 @@
     <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 9h10v10H9zM5 15V5h10"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h5M13 7h7M4 12h9M17 12h3M4 17h3M11 17h9M9 5v4M15 10v4M7 15v4"/></symbol>
     <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 9.5v4m0 3.5h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></symbol>
   </defs>
 </svg>
 
@@ -158,6 +211,15 @@
     <span>локальный запуск команд из чата</span>
   </span>
   <span class="ver" id="ver">…</span>
+</div>
+
+<div class="style-bar">
+  <span class="style-bar-title">Стиль:</span>
+  <div class="style-seg" id="uiStyleSeg">
+    <button type="button" class="style-btn active" data-v="linear"><svg><use href="#i-bolt"></use></svg>Linear</button>
+    <button type="button" class="style-btn" data-v="warp"><svg><use href="#i-terminal"></use></svg>Warp</button>
+    <button type="button" class="style-btn" data-v="glass"><svg><use href="#i-sparkle"></use></svg>Glass</button>
+  </div>
 </div>
 
 <main>

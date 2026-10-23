@@ -687,6 +687,35 @@ html[data-ax-theme="dark"][data-ax-palette="amethyst"] .ax-ui-auto,
   --ax-r-lg: 28px; --ax-r-pill: 999px;
 }
 
+/* ---------- стили оформления (Linear, Warp, Glass) ---------- */
+
+[data-ax-style="linear"],
+:host([data-ax-style="linear"]),
+html[data-ax-style="linear"] {
+  --ax-r-xs: 4px;
+  --ax-r-sm: 6px;
+  --ax-r-md: 9px;
+  --ax-r-lg: 12px;
+}
+
+[data-ax-style="warp"],
+:host([data-ax-style="warp"]),
+html[data-ax-style="warp"] {
+  --ax-r-xs: 5px;
+  --ax-r-sm: 8px;
+  --ax-r-md: 10px;
+  --ax-r-lg: 14px;
+}
+
+[data-ax-style="glass"],
+:host([data-ax-style="glass"]),
+html[data-ax-style="glass"] {
+  --ax-r-xs: 8px;
+  --ax-r-sm: 10px;
+  --ax-r-md: 16px;
+  --ax-r-lg: 20px;
+}
+
 /* ---------- фирменные улучшения дизайна ---------- */
 
 /* Пульсация статуса «выполняется» */

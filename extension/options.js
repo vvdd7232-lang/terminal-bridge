@@ -61,6 +61,7 @@ const DEFAULTS = {
   uiRadius: 'soft',
   uiBtnStyle: 'soft',
   uiDensity: 'normal',
+  uiStyle: 'linear',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -124,6 +125,7 @@ async function load() {
   setSeg('uiRadius', d.uiRadius || 'soft');
   setSeg('uiBtnStyle', d.uiBtnStyle || 'soft');
   setSeg('uiDensity', d.uiDensity || 'normal');
+  setSeg('uiStyle', d.uiStyle || 'linear');
   applyUiTuningToHtml(d);
   $('previewLines').value = d.previewLines != null ? d.previewLines : DEFAULTS.previewLines;
   $('noisyCollapse').checked = d.noisyCollapse !== false;
@@ -226,7 +228,9 @@ const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset', 'amethyst'];
 const UI_RADII = ['none', 'sharp', 'soft', 'round', 'pill'];
 const UI_BTN_STYLES = ['soft', 'solid', 'outline', 'flat', 'tile'];
 const UI_DENSITIES = ['compact', 'normal', 'spacious'];
+const UI_STYLES = ['linear', 'warp', 'glass'];
 const UI_TUNING = [
+  { key: 'uiStyle', attr: 'data-ax-style', allowed: UI_STYLES, def: 'linear' },
   { key: 'uiPalette', attr: 'data-ax-palette', allowed: UI_PALETTES, def: 'indigo' },
   { key: 'uiRadius', attr: 'data-ax-radius', allowed: UI_RADII, def: 'soft' },
   { key: 'uiBtnStyle', attr: 'data-ax-btn', allowed: UI_BTN_STYLES, def: 'soft' },
@@ -285,6 +289,7 @@ function initUiTuning() {
 // Текущие значения оформления из формы (без чтения storage — оттуда lag при клике).
 function readUiTuning() {
   return {
+    uiStyle: getSeg('uiStyle') || 'linear',
     uiPalette: getSeg('uiPalette') || 'indigo',
     uiRadius: getSeg('uiRadius') || 'soft',
     uiBtnStyle: getSeg('uiBtnStyle') || 'soft',
@@ -1008,6 +1013,7 @@ function collectSettings() {
     showToasts: $('showToasts').checked,
     defaultCwd: $('defaultCwd').value.trim(),
     echoMode: getSeg('echoMode') || 'short',
+    uiStyle: getSeg('uiStyle') || 'linear',
     uiPalette: getSeg('uiPalette') || 'indigo',
     uiRadius: getSeg('uiRadius') || 'soft',
     uiBtnStyle: getSeg('uiBtnStyle') || 'soft',
