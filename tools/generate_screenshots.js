@@ -219,12 +219,12 @@ async function render() {
     await pagePopup.evaluateOnNewDocument(() => {
       window.chrome = {
         runtime: {
-          getManifest: () => ({ version: '2.12.3' }),
+          getManifest: () => ({ version: '2.12.4' }),
           sendMessage: (msg) => {
             if (msg.type === 'AX_PING') {
               return Promise.resolve({
                 ok: true,
-                info: { version: '2.12.3', platform: 'Linux', cwd: '/home/user/project' }
+                info: { version: '2.12.4', platform: 'Linux', cwd: '/home/user/project' }
               });
             }
             return Promise.resolve({ ok: true });
@@ -261,10 +261,10 @@ async function render() {
       const st = document.getElementById('status');
       if (st) {
         st.className = 'status ok';
-        st.textContent = 'Сервер v2.12.3 на связи (порт 8765)';
+        st.textContent = 'Сервер v2.12.4 на связи (порт 8765)';
       }
       const ver = document.getElementById('ver');
-      if (ver) ver.textContent = 'v2.12.3';
+      if (ver) ver.textContent = 'v2.12.4';
     });
     await new Promise(r => setTimeout(r, 400));
     await pagePopup.screenshot({
@@ -323,12 +323,12 @@ async function render() {
     await pageOptions.evaluateOnNewDocument(() => {
       window.chrome = {
         runtime: {
-          getManifest: () => ({ version: '2.12.3' }),
+          getManifest: () => ({ version: '2.12.4' }),
           sendMessage: (msg) => {
             if (msg.type === 'AX_PING') {
               return Promise.resolve({
                 ok: true,
-                info: { version: '2.12.3', platform: 'Linux', cwd: '/home/user/project' }
+                info: { version: '2.12.4', platform: 'Linux', cwd: '/home/user/project' }
               });
             }
             return Promise.resolve({ ok: true });
@@ -370,10 +370,10 @@ async function render() {
       const st = document.getElementById('status');
       if (st) {
         st.className = 'status ok';
-        st.textContent = 'Сервер v2.12.3 на связи · порт 8765 (Linux)';
+        st.textContent = 'Сервер v2.12.4 на связи · порт 8765 (Linux)';
       }
       const ver = document.getElementById('ver');
-      if (ver) ver.textContent = '2.12.3';
+      if (ver) ver.textContent = '2.12.4';
     });
     await new Promise(r => setTimeout(r, 400));
     await pageOptions.screenshot({
