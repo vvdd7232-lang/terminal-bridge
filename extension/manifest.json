@@ -113,7 +113,7 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "ai-execute-runner@arena.local",
+      "id": "terminal-bridge@arena.local",
       "strict_min_version": "109.0"
     }
   }

@@ -94,6 +94,11 @@ async function ping() {
   box.textContent = 'Проверка сервера…';
   const serverUrl = $('serverUrl').value.trim();
   const pr = axApi.runtime.sendMessage({ type: 'AX_PING', serverUrl });
+  const fmtPing = (info) => {
+    const v = info && info.version ? 'v' + info.version : '';
+    const p = info && info.port ? ' (порт ' + info.port + ')' : '';
+    return 'Сервер ' + (v ? v + ' ' : '') + 'на связи' + p;
+  };
   if (pr && pr.then) {
     pr.then((resp) => {
       if (resp && resp.ok) {
@@ -101,12 +106,9 @@ async function ping() {
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
           box.textContent = '⚠️ Сервер на связи, но токен не принят. Обнови server.py или открой ссылку из его консоли.';
-        } else if (info.auth_required && info.auth_ok === true) {
-          box.className = 'status ok';
-          box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
         } else {
           box.className = 'status ok';
-          box.textContent = '✅ Сервер на связи: ' + JSON.stringify(info);
+          box.textContent = '✅ ' + fmtPing(info);
         }
       } else {
         box.className = 'status err';
@@ -124,12 +126,9 @@ async function ping() {
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
           box.textContent = '⚠️ Сервер на связи, но токен не принят. Обнови server.py или открой ссылку из его консоли.';
-        } else if (info.auth_required && info.auth_ok === true) {
-          box.className = 'status ok';
-          box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
         } else {
           box.className = 'status ok';
-          box.textContent = '✅ Сервер на связи: ' + JSON.stringify(info);
+          box.textContent = '✅ ' + fmtPing(info);
         }
       } else {
         box.className = 'status err';

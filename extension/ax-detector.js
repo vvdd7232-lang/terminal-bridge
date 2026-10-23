@@ -345,8 +345,8 @@
     },
     {
       id: 'path-not-found-ps',
-      test: (x) => /Cannot find (path|drive)|because it does not exist|не удается найти путь/i.test(x.stderr),
-      title: 'Путь не найден',
+      test: (x) => /Cannot find (path|drive)|because it does not exist|не удается найти путь|FileNotFoundException|DirectoryNotFoundException|Could not find file/i.test(x.stderr),
+      title: 'Путь или файл не найден',
       hint: 'Проверь рабочую папку в результате (`cwd`) — относительные пути считаются от неё. Надёжнее указывать абсолютный путь. Важно: PowerShell при этом часто отдаёт exit=0 и пишет ошибку только в stderr.',
     },
     {

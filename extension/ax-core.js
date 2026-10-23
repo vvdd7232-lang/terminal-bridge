@@ -44,7 +44,8 @@
     previewLines: 12,
     paletteEnabled: true,
     noisyCollapse: true,
-    // Внешний вид (экспериментально): палитра, скругление, стиль кнопок, плотность, стиль
+    mcpEnabled: false,
+    // Внешний вид: палитра, скругление, стиль кнопок, плотность, стиль
     uiPalette: 'indigo',
     uiRadius: 'soft',
     uiBtnStyle: 'soft',
@@ -61,6 +62,7 @@
   AX.autoRunCount = 0;
   AX.lastAutoCommands = [];
   AX.loopBlocked = false;
+  AX.sessionExecuted = new Set();
   AX.AX_SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   AX.AX_BOOT = Date.now();
   AX.BOOT_GRACE_MS = 15000;
@@ -306,6 +308,24 @@
     if (!input) { AX.silentCopy(text); if (toastText !== null) AX.toast('Поле ввода чата не найдено — результат скопирован в буфер'); return null; }
     try {
       input.focus();
+      const cleanText = (text || '').trim();
+      const currentVal = input.value || input.textContent || '';
+      // Защита от двойной отдачи: если этот результат уже присутствует в поле чата — не вставляем повторно
+      if (cleanText && currentVal.includes(cleanText)) {
+        if (toastText !== null) AX.toast('Результат уже в поле ввода чата');
+        return input;
+      }
+      // Если в поле висит временный маркер выполнения [LOCAL EXEC] seq=N — удаляем его перед вставкой результата
+      const runMarkerMatch = cleanText.match(/\[LOCAL EXEC RESULT\]\s+seq=(\d+)/);
+      if (runMarkerMatch) {
+        const seqNum = runMarkerMatch[1];
+        const markerRe = new RegExp('\\n?\\[LOCAL EXEC\\]\\s+seq=' + seqNum + '\\s+status=[^\\n]+\\n?(?:\\$[^\\n]+\\n?)?', 'g');
+        if (markerRe.test(currentVal)) {
+          if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+            input.value = input.value.replace(markerRe, '');
+          }
+        }
+      }
       if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
         AX.setTextareaReactSafe(input, text);
       } else {
@@ -478,14 +498,15 @@
     let out = max > 0 ? so.slice(0, max) : so;
     let err = max > 0 ? se.slice(0, Math.floor(max / 2)) : se;
     const clipIns = max > 0 && so.length > max;
+    const exitVal = o.exit_code != null ? o.exit_code : '?';
     let txt = '[LOCAL EXEC RESULT] seq=' + (o.seq || 0) + ' status=done' +
-      ' runner=' + o.runner + ' exit=' + (o.exit_code == null ? '?' : o.exit_code) +
+      ' runner=' + (o.runner || 'shell') + ' exit=' + exitVal +
       ' executed=' + (o.executed === false ? 'no' : 'yes') +
       ' cwd="' + (o.cwd || '?') + '"' +
       ' stdout_bytes=' + (o.stdoutBytes != null ? o.stdoutBytes : so.length) +
+      (clipIns ? ' (truncated for display: showing ' + out.length + ' chars)' : '') +
       ' stderr_bytes=' + (o.stderrBytes != null ? o.stderrBytes : se.length) +
       (o.durationMs != null ? ' dur=' + (o.durationMs < 1000 ? o.durationMs + 'ms' : (o.durationMs / 1000).toFixed(1) + 's') : '') +
-      (clipIns ? ' insert_truncated=yes shown_chars=' + out.length + '/' + so.length : '') +
       '\n$ ' + AX.echoCommand(o.command, o.echoMode) + '\n';
     if (out) txt += '--- stdout ---\n' + out + (max > 0 && so.length > max ? '\n…(обрезано вставкой: лимит ' + max + ' симв.)' : '') + '\n';
     const clipErr = max > 0 && se.length > Math.floor(max / 2);
@@ -627,7 +648,7 @@
     r = r || {};
     if (r.view) {
       const v = r.view;
-      const head = '[LOCAL EXEC RESULT] seq=' + (seq || 0) + ' status=done view=' + v.path + '\n$ ' + AX.echoCommand(cmd, echoMode) + '\n';
+      const head = '[LOCAL EXEC RESULT] seq=' + (seq || 0) + ' status=done runner=view exit=0 executed=yes cwd="' + (r.cwd || '?') + '" view=' + v.path + '\n$ ' + AX.echoCommand(cmd, echoMode) + '\n';
       const body = '--- view ---\n\ud83d\uddbc\ufe0f ' + v.path + ' (' + v.mime + ', ' + v.size + ' B)\n';
       return head + body;
     }
@@ -724,10 +745,12 @@
     } catch (e) { /* ignore */ }
   };
   AX.markExecuted = function (cmd, runner) {
-    AX.execHistory.delete(AX.autoRunKey(cmd, runner));
-    AX.execHistory.set(AX.autoRunKey(cmd, runner), { t: Date.now(), s: AX.AX_SESSION });
+    const key = AX.autoRunKey(cmd, runner);
+    AX.execHistory.delete(key);
+    AX.execHistory.set(key, { t: Date.now(), s: AX.AX_SESSION });
     while (AX.execHistory.size > 200) AX.execHistory.delete(AX.execHistory.keys().next().value);
     AX.saveExecHistory();
+    if (AX.sessionExecuted) AX.sessionExecuted.add(key);
   };
   AX.historyAge = function (cmd, runner) {
     const e = AX.execHistory.get(AX.autoRunKey(cmd, runner));

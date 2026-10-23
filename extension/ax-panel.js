@@ -677,9 +677,15 @@
       }
       running = true;
       currentRunId = 'ax-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      let runFinished = false;
+      let runStatusSent = false;
+      let runStatusTimer = null;
+      let staleTimer = null;
       const fin = () => {
         running = false;
         currentRunId = null;
+        if (runStatusTimer) { clearTimeout(runStatusTimer); runStatusTimer = null; }
+        if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
         btnRun.classList.remove('ax-btn-abort');
         btnRun.disabled = false;
         AX.setBtnLabel(btnRun, 'play', 'Выполнить');
@@ -729,39 +735,40 @@
       after.style.display = 'none';
       if (btnFix) btnFix.style.display = 'none';
 
-      let runFinished = false;
-      let runStatusSent = false;
-      const runStatusTimer = AX.settings.autoInsert ? setTimeout(() => {
-        if (runFinished || runStatusSent) return;
-        runStatusSent = true;
-        AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
-      }, 800) : null;
-      const staleGuard = () => {
+      if (AX.settings.autoInsert) {
+        runStatusTimer = setTimeout(() => {
+          if (runFinished || runStatusSent) return;
+          runStatusSent = true;
+          AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
+        }, 1200);
+      }
+      staleTimer = setTimeout(() => {
         if (!runFinished && !runStatusSent) {
           runStatusSent = true;
-          AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=stale-guard\n');
+          AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + ' (длительное выполнение…)\n');
         }
-      };
-      setTimeout(staleGuard, 30000);
+      }, 30000);
+
       sendRun(cmd, runRunner, async (resp) => {
           runFinished = true;
+          if (runStatusTimer) { clearTimeout(runStatusTimer); runStatusTimer = null; }
+          if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
           // Панель считается завершённой при ЛЮБОМ исходе (успех, ошибка,
           // блокировка whitelist). Раньше finish() вызывался только в ветке
           // успеха, поэтому после ошибки флаг done оставался false и панель
           // снова попадала под applyPendingAuto()/retry() — уже упавшая
           // команда запускалась повторно.
           autoHandle.finish();
-          if (runStatusTimer) clearTimeout(runStatusTimer);
           btnRun.classList.remove('ax-btn-abort');
           btnRun.disabled = false;
           AX.setBtnLabel(btnRun, 'play', 'Выполнить');
           btnRun.title = '';
           if (!resp) {
-            AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\nнет ответа от расширения\n');
+            AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error runner=' + runRunner + ' exit=1 executed=no\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\nнет ответа от расширения\n');
             status.className = 'ax-exec-status ax-err'; status.textContent = '❌ Нет ответа от расширения.'; fin(); return;
           }
           if (!resp.ok) {
-            AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n' + resp.error + '\n');
+            AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error runner=' + runRunner + ' exit=1 executed=no\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n' + resp.error + '\n');
             const looksConn = /fetch|abort|network|ожидания|ECONN|Failed/i.test(resp.error || '');
             status.className = 'ax-exec-status ax-err';
             status.textContent = '❌ Ошибка: ' + resp.error + (looksConn ? ' — запущен ли server.py?' : '');
@@ -774,7 +781,7 @@
           lastRunCmd = cmd;
           lastRunRunner = runRunner;
           if (r.blocked) {
-            AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n' + (r.error || '') + '\n');
+            AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked runner=' + runRunner + ' exit=1 executed=no reason=whitelist\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n' + (r.error || '') + '\n');
             status.className = 'ax-exec-status ax-err';
             status.textContent = '\u26d4 Whitelist: ' + (r.error || 'команда не разрешена');
             AX.toast('\u26d4 ' + (r.error || 'Заблокировано whitelist'));
@@ -833,8 +840,18 @@
           if (AX.settings.autoInsert && lastChatFormatted) {
             try {
               const input = AX.insertIntoChat('\n```text\n' + lastChatFormatted + '\n```\n');
-              if (!input) { AX.toast('⚠️ Поле чата не найдено — результат в буфере обмена'); }
-              else if (AX.settings.autoSend) { AX.autoSendToChat(input, fin); return; }
+              if (!input) {
+                AX.toast('⚠️ Поле чата не найдено — результат в буфере обмена');
+              } else if (AX.settings.autoSend) {
+                // Если в очереди есть ещё блоки (например, несколько блоков в одном сообщении),
+                // не отправляем чат сейчас — даём следующему блоку выполниться и вставить результат!
+                if (AX.autoQueue && AX.autoQueue.length > 0) {
+                  // ждём завершения оставшихся блоков в очереди
+                } else {
+                  AX.autoSendToChat(input, fin);
+                  return;
+                }
+              }
             } catch (e) { console.warn('[AX] insert:', e); }
           }
           fin();
@@ -929,25 +946,21 @@
       forceAutoOnce = false;
       if (autoCancelled || autoHandle.done) { finQ(); return; }
       if (!AX.settings.autoExecute) {
-        AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=auto-disabled (выключено в настройках)\n');
         stopAutoTimer('Автовыполнение выключено в настройках — нажмите ▶ вручную.');
         finQ(); return;
       }
       if (flags.weak && !AX.settings.autoWeak) {
-        AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=weak-disabled (блок EXECUTE?, автозапуск выключен)\n');
         stopAutoTimer(MSG_WEAK_AUTO_OFF);
         autoHandle.finish();
         finQ(); return;
       }
       if (AX.loopBlocked) {
-        AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=loop-guard (зацикливание, автопилот остановлен)\n');
         stopAutoTimer(MSG_LOOP_OFF);
         finQ(); return;
       }
       phase2 = true;
       const runLim = +AX.settings.maxAutoRuns || 0;
       if (runLim > 0 && AX.autoRunCount >= runLim) {
-        AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=tab-limit (' + runLim + ')\n');
         stopAutoTimer('🛑 Лимит автозапусков (' + runLim + ') на вкладку исчерпан — дальше вручную.');
         autoHandle.finish();
         finQ(); return;
@@ -967,28 +980,29 @@
           }
           maybeResniff(cmd);
           if (D.isHardDangerous(cmd)) {
-            AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
             stopAutoTimer('⛔ Опасная команда: только вручную кнопкой ▶.');
             autoHandle.finish();
             finQ(); return;
           }
           const dup = AX.dupAge(cmd, panelRunner());
           if (dup > 0) {
-            AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=duplicate age=' + dup + 's\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
             stopAutoTimer('⏭ Дубль: такая команда уже выполнялась ' + dup + 'с назад — пропуск (жми ▶ для повтора).');
             autoHandle.finish();
             finQ(); return;
           }
           if (!bypassChecks) {
+            if (AX.sessionExecuted && AX.sessionExecuted.has(AX.autoRunKey(cmd, panelRunner()))) {
+              stopAutoTimer('⏭ Уже выполнялась в этой сессии — для повторного запуска нажмите ▶.');
+              autoHandle.finish();
+              finQ(); return;
+            }
             const hist = AX.historyAge(cmd, panelRunner());
             if (hist > 0) {
-              AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
               stopAutoTimer('⏭ Уже выполнялась раньше (' + AX.fmtAge(hist) + ' назад) — пропуск (жми ▶ для повтора).');
               autoHandle.finish();
               finQ(); return;
             }
             if (!flags.forced && Date.now() - AX.AX_BOOT < AX.BOOT_GRACE_MS && createdCmd && cmd === createdCmd) {
-              AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
               stopAutoTimer('⏭ Блок уже был на странице при загрузке — автозапуск пропущен (жми ▶).');
               autoHandle.finish();
               finQ(); return;
@@ -1000,7 +1014,6 @@
           if (AX.lastAutoCommands.length > 10) AX.lastAutoCommands.shift();
           if (loopCheck.loop) {
             AX.loopBlocked = true;
-            AX.noteToChat('\n[LOCAL EXEC] status=skipped reason=loop-guard (' + loopCheck.reason + ')\n');
             stopAutoTimer('🛑 Зацикливание ИИ (' + loopCheck.reason + ') — автопилот остановлен, дальше вручную.');
             autoHandle.finish();
             AX.toast('🛑 Зацикливание ИИ — ' + loopCheck.reason);

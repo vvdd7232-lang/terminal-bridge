@@ -306,7 +306,7 @@ async function run() {
   console.log('\n[10] Журнал: markdown-экспорт');
   const optionsJs = fs.readFileSync(path.join(EXT_DIR, 'options.js'), 'utf8');
   check('в options.js есть генератор markdown', /function journalLines/.test(optionsJs));
-  check('экспорт пишет имя файла .md', /ai-execute-journal\.md/.test(optionsJs));
+  check('экспорт пишет имя файла .md', /terminal-bridge-journal\.md/.test(optionsJs));
   check('в шапке журнала предупреждение о секретах', /секреты \(токен доступа\) в командах не сохраняются/.test(optionsJs));
   check('markdown-таблица формируется', /\|---\|---/.test(optionsJs.replace(/\|/g, '|')) && /\| # \| Когда \|/.test(optionsJs));
   check('в options.html есть кнопки журнала', /id="exportJournal"/.test(fs.readFileSync(path.join(EXT_DIR, 'options.html'), 'utf8')) &&

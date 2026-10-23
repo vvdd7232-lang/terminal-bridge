@@ -44,7 +44,8 @@ ALLOWED_ORIGIN = None      # флаг --allowed-origin задаёт точный
 # Файл со «стабильным» токеном: живёт в домашней папке пользователя, не в репо
 # (иначе секрет уехал бы в git). Так токен не меняется при каждом перезапуске,
 # и расширению не нужно заново настраиваться — работает zero-touch синхронизация.
-TOKEN_FILE = os.path.join(os.path.expanduser('~'), '.ai-execute-runner.token')
+TOKEN_FILE = os.path.join(os.path.expanduser('~'), '.terminal-bridge.token')
+LEGACY_TOKEN_FILE = os.path.join(os.path.expanduser('~'), '.ai-execute-runner.token')
 
 
 def _load_or_create_token():
@@ -60,6 +61,17 @@ def _load_or_create_token():
             with open(TOKEN_FILE, 'r', encoding='utf-8') as fh:
                 saved = fh.read().strip()
             if saved:
+                return saved
+        elif os.path.exists(LEGACY_TOKEN_FILE):
+            with open(LEGACY_TOKEN_FILE, 'r', encoding='utf-8') as fh:
+                saved = fh.read().strip()
+            if saved:
+                try:
+                    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, 'w', encoding='utf-8') as fh_out:
+                        fh_out.write(saved)
+                except OSError:
+                    pass
                 return saved
     except OSError:
         pass
@@ -308,19 +320,21 @@ def _readable_score(s):
             score += 3  # кириллица и русская пунктуация
         elif 0x2500 <= o <= 0x257F or 0x2580 <= o <= 0x259F:
             score += 2  # псевдографика консоли
+        elif (0x2600 <= o <= 0x27BF) or (0x1F300 <= o <= 0x1F9FF):
+            score += 3  # эмодзи и спецсимволы (⚡, ✅, 🎯 и т.д.)
     return score
 
 
 def _decode_one_line(chunk):
     """Декодирует один фрагмент (строку) в наиболее правдоподобной кодировке.
     Windows даёт СМЕШАННЫЙ поток: внутренние команды cmd (echo, dir) пишут
-    в OEM-кодировке (cp866), а node/python всегда пишут UTF-8. Единая
+    в OEM-кодировке (cp866), а node/python/powershell всегда пишут UTF-8. Единая
     кодировка на весь буфер гарантированно ломает половину строк."""
-    # 1) Строгий UTF-8 — предпочтителен: node/python всегда шлют utf-8.
+    # 1) Строгий UTF-8 — предпочтителен: node/python/pwsh всегда шлют utf-8.
     try:
         s = chunk.decode('utf-8')
-        if any(0x400 <= ord(c) <= 0x4FF for c in s):
-            return s  # есть кириллица => это точно UTF-8
+        if any((0x400 <= ord(c) <= 0x4FF) or (0x2600 <= ord(c) <= 0x27BF) or (0x1F300 <= ord(c) <= 0x1F9FF) for c in s):
+            return s  # есть кириллица или эмодзи => это точно UTF-8
         alt866 = chunk.decode('cp866', errors='replace')
         if _readable_score(alt866) > _readable_score(s) + 4:
             return alt866
@@ -756,14 +770,37 @@ def _sanitize_svg(data_bytes):
     return True, ''
 
 
-def _handle_view(raw_path):
+def _get_safe_cwd(requested_cwd=None):
+    """Возвращает безопасный рабочий каталог.
+    Если cwd передан и существует — использует его.
+    Если не передан (или системный C:\\Windows\\System32 / корень) — дефолт %USERPROFILE% / ~."""
+    if requested_cwd and str(requested_cwd).strip():
+        exp = os.path.expanduser(str(requested_cwd).strip())
+        if os.path.isdir(exp):
+            return exp
+    cur = os.getcwd()
+    if os.name == 'nt':
+        win_root = os.environ.get('SystemRoot', r'C:\Windows').lower()
+        if cur.lower().startswith(win_root) or os.path.basename(cur).lower() in ('system32', 'syswow64', 'windows'):
+            home = os.path.expanduser('~')
+            if os.path.isdir(home):
+                return home
+    else:
+        if cur in ('/', '/root'):
+            home = os.path.expanduser('~')
+            if os.path.isdir(home):
+                return home
+    return cur
+
+
+def _handle_view(raw_path, cwd=None):
     """Читает изображение и возвращает data URL. Shell не выполняет."""
     p = (raw_path or '').strip().strip('"').strip("'")
     if not p:
         return {'ok': False, 'executed': False, 'error': 'view: empty path'}
     p = os.path.expanduser(p)
     if not os.path.isabs(p):
-        p = os.path.abspath(p)
+        p = os.path.abspath(os.path.join(cwd or _get_safe_cwd(), p))
     if _is_sensitive_path(p):
         return {'ok': False, 'executed': False, 'error': 'view: access to sensitive or system paths is restricted'}
     if not os.path.exists(p):
@@ -809,9 +846,19 @@ def execute(payload):
     if not ok_wl:
         return {'ok': False, 'executed': False, 'blocked': True,
                 'error': f'whitelist: {wl_reason}', 'command': command}
+    timeout = payload.get('timeout') or DEFAULT_TIMEOUT
+    cwd_raw = str(payload.get('cwd') or '').strip()
+    if cwd_raw:
+        cwd = os.path.expanduser(cwd_raw)
+        if not os.path.isdir(cwd):
+            return {'ok': False, 'executed': False, 'error': f'cwd not found: {cwd}'}
+    else:
+        cwd = _get_safe_cwd()
+    eff_cwd = cwd
+
     # view: спец-команда просмотра изображения
     if command.lower().startswith("view "):
-        return _handle_view(command[5:])
+        return _handle_view(command[5:], cwd=eff_cwd)
     runner = str(payload.get('runner') or 'shell').strip().lower()
     # В whitelist-режиме сырые интерпретаторы (python, node, powershell)
     # блокируются, так как они исполняют невалидированный произвольный код
@@ -819,9 +866,6 @@ def execute(payload):
         return {'ok': False, 'executed': False, 'blocked': True,
                 'error': f'whitelist: runner «{runner}» disabled in whitelist mode (executes unvalidated code)',
                 'command': command}
-    timeout = payload.get('timeout') or DEFAULT_TIMEOUT
-    cwd_raw = str(payload.get('cwd') or '').strip()
-    cwd = os.path.expanduser(cwd_raw) if cwd_raw else None
     try:
         timeout = max(2, min(int(timeout), 600))
     except (ValueError, TypeError):
@@ -829,8 +873,6 @@ def execute(payload):
 
     if not command:
         return {'ok': False, 'executed': False, 'error': 'empty command'}
-    if cwd and not os.path.isdir(cwd):
-        return {'ok': False, 'executed': False, 'error': f'cwd not found: {cwd}'}
     if runner not in ('shell', 'python', 'node', 'powershell'):
         return {'ok': False, 'executed': False, 'error': f'unknown runner: {runner}'}
 
@@ -843,43 +885,45 @@ def execute(payload):
 
     t0 = time.monotonic()  # замер длительности выполнения
 
-    _log(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}' +
+    _log(f'\n[run] runner={runner} timeout={timeout}s cwd={eff_cwd}' +
          (f' run_id={run_id}' if run_id else ''))
     _log(f'--- command ---\n{command[:2000]}')
 
     try:
         try:
             if runner == 'shell':
-                p = run_shell(command, timeout, cwd, run_id=run_id)
+                p = run_shell(command, timeout, eff_cwd, run_id=run_id)
             elif runner == 'python':
-                py_exe = _detect_venv_python(cwd)
+                py_exe = _detect_venv_python(eff_cwd)
                 if py_exe != sys.executable:
                     used_venv = py_exe
                     _log(f'[python] обнаружен virtualenv: {py_exe}')
                 # PYTHONUTF8: кириллица/эмодзи в выводе не едут в ???? независимо от кодовой страницы
                 py_env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
-                p = run_with_tempfile(command, timeout, cwd, '.py', [py_exe], env=py_env, run_id=run_id)
+                p = run_with_tempfile(command, timeout, eff_cwd, '.py', [py_exe], env=py_env, run_id=run_id)
             elif runner == 'node':
-                p = run_with_tempfile(command, timeout, cwd, '.js', ['node'], run_id=run_id)
+                p = run_with_tempfile(command, timeout, eff_cwd, '.js', ['node'], run_id=run_id)
             elif runner == 'powershell':
                 # Многострочные скрипты через -Command схлопываются и ломаются на парсинге,
                 # поэтому пишем во временный .ps1 и запускаем через -File.
                 # BOM (utf-8-sig): иначе PowerShell 5.1 читает UTF-8-кириллицу как мусор.
                 ps_code = ("$ProgressPreference='SilentlyContinue'; "
-                           "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); "
-                           "$OutputEncoding=[System.Text.UTF8Encoding]::new();\n" + command)
+                           "try { [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}; "
+                           "try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}; "
+                           "$OutputEncoding = [System.Text.UTF8Encoding]::new($false);\n" + command)
                 with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8-sig') as f:
                     f.write(ps_code)
                     ps_path = f.name
+                ps_env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
                 try:
                     p = _safe_run(['powershell', '-NoProfile', '-NonInteractive',
                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
-                                  timeout=timeout, cwd=cwd or None, run_id=run_id)
+                                  timeout=timeout, cwd=eff_cwd, env=ps_env, run_id=run_id)
                 except FileNotFoundError:
                     # Linux/macOS: PowerShell Core ставится как `pwsh`
                     p = _safe_run(['pwsh', '-NoProfile', '-NonInteractive',
                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
-                                  timeout=timeout, cwd=cwd or None, run_id=run_id)
+                                  timeout=timeout, cwd=eff_cwd, env=ps_env, run_id=run_id)
                 finally:
                     try:
                         os.unlink(ps_path)
@@ -892,7 +936,7 @@ def execute(payload):
             clipped_out, _ = _clip(out)
             clipped_err, _ = _clip(tout_err)
             return {'ok': True, 'runner': runner, 'command': command, 'exit_code': 124,
-                    'executed': True, 'cwd': cwd or os.getcwd(),
+                    'executed': True, 'cwd': eff_cwd,
                     'stdout': clipped_out, 'stderr': clipped_err,
                     'truncated': True,
                     'stdout_bytes': len(e.stdout or b''), 'stderr_bytes': len(e.stderr or b''),
@@ -911,7 +955,6 @@ def execute(payload):
 
         raw_out, raw_err = p.stdout or b'', p.stderr or b''
         stdout, stderr = smart_decode(raw_out), smart_decode(raw_err)
-        eff_cwd = cwd or os.getcwd()
         clipped_out, t1 = _clip(stdout)
         clipped_err, t2 = _clip(stderr)
         dur_ms = int((time.monotonic() - t0) * 1000)
@@ -928,7 +971,7 @@ def execute(payload):
         _exec_semaphore.release()
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'AIExecuteRunner/' + VERSION
+    server_version = 'TerminalBridge/' + VERSION
 
     def _allowed(self, is_token_sync=False):
         # Защита от DNS-rebinding и чужих сайтов:
@@ -1354,10 +1397,14 @@ def main():
             print(f'ошибка: папка --cwd не найдена: {args.cwd}')
             sys.exit(1)
         os.chdir(cwd_arg)
-    elif os.name == 'nt' and os.path.basename(os.getcwd()).lower() in ('system32', 'syswow64', 'windows'):
-        home = os.path.expanduser('~')
-        print(f'  [!] стартовый каталог {os.getcwd()} — системный, перехожу в {home}')
-        os.chdir(home)
+    else:
+        safe_dir = _get_safe_cwd()
+        if safe_dir != os.getcwd():
+            print(f'  [!] стартовый каталог {os.getcwd()} — системный, перехожу в {safe_dir}')
+            try:
+                os.chdir(safe_dir)
+            except OSError:
+                pass
     try:
         srv = QuietServer(('127.0.0.1', args.port), Handler)
     except OSError as e:

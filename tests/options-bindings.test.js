@@ -191,8 +191,8 @@ async function run() {
   };
   click($('exportBtn'));
   await waitFor(() => downloadName !== null, 2000).catch(() => {});
-  check('Экспорт запустил скачивание ai-execute-settings.json',
-    downloadName === 'ai-execute-settings.json', downloadName);
+  check('Экспорт запустил скачивание terminal-bridge-settings.json',
+    downloadName === 'terminal-bridge-settings.json', downloadName);
   w.document.createElement = origCreate;
 
   // Реалистичный цикл: экспорт текущих настроек -> сброс -> импорт файла.

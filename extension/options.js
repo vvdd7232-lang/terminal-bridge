@@ -308,7 +308,7 @@ async function exportSettings() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'ai-execute-settings.json';
+    a.download = 'terminal-bridge-settings.json';
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     statusMsg('Экспортировано', 'ok');
@@ -595,11 +595,11 @@ async function exportJournal() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'ai-execute-journal.md';
+    a.download = 'terminal-bridge-journal.md';
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     statusMsg(entries.length
-      ? '📋 Журнал выгружен: ' + entries.length + ' записей (ai-execute-journal.md)'
+      ? '📋 Журнал выгружен: ' + entries.length + ' записей (terminal-bridge-journal.md)'
       : 'Журнал пуст — сначала выполни что-нибудь', entries.length ? 'ok' : '');
   } catch (e) {
     statusMsg('Ошибка выгрузки журнала: ' + e, 'err');
