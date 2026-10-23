@@ -1164,8 +1164,15 @@ async function testConnection(userInitiated) {
   statusMsg('Проверка сервера…', '');
   try {
     const resp = await axApi.runtime.sendMessage({ type: 'AX_PING', serverUrl });
-    if (resp && resp.ok) { statusMsg('✅ Сервер на связи: ' + JSON.stringify(resp.info), 'ok'); updateWhitelistInfo(resp.info); }
-    else statusMsg('❌ Сервер недоступен (' + ((resp && resp.error) || 'нет ответа') + '). Запустите: python server.py', 'err');
+    if (resp && resp.ok) {
+      if (resp.discoveredUrl && $('serverUrl').value !== resp.discoveredUrl) {
+        $('serverUrl').value = resp.discoveredUrl;
+      }
+      statusMsg('✅ Сервер на связи: ' + JSON.stringify(resp.info), 'ok');
+      updateWhitelistInfo(resp.info);
+    } else {
+      statusMsg('❌ Сервер недоступен (' + ((resp && resp.error) || 'нет ответа') + '). Запустите: python server.py', 'err');
+    }
   } catch (e) {
     statusMsg('❌ Ошибка: ' + e, 'err');
   }

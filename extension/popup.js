@@ -103,12 +103,15 @@ async function ping() {
     pr.then((resp) => {
       if (resp && resp.ok) {
         const info = resp.info || {};
+        if (resp.discoveredUrl && $('serverUrl').value !== resp.discoveredUrl) {
+          $('serverUrl').value = resp.discoveredUrl;
+        }
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
           box.textContent = '⚠️ Сервер на связи, но токен не принят. Обнови server.py или открой ссылку из его консоли.';
         } else {
           box.className = 'status ok';
-          box.textContent = '✅ ' + fmtPing(info);
+          box.textContent = '✅ ' + fmtPing(info) + (resp.autoDiscovered ? ' [найден]' : '');
         }
       } else {
         box.className = 'status err';
@@ -123,12 +126,15 @@ async function ping() {
       const err = chrome.runtime.lastError;
       if (!err && resp && resp.ok) {
         const info = resp.info || {};
+        if (resp.discoveredUrl && $('serverUrl').value !== resp.discoveredUrl) {
+          $('serverUrl').value = resp.discoveredUrl;
+        }
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
           box.textContent = '⚠️ Сервер на связи, но токен не принят. Обнови server.py или открой ссылку из его консоли.';
         } else {
           box.className = 'status ok';
-          box.textContent = '✅ ' + fmtPing(info);
+          box.textContent = '✅ ' + fmtPing(info) + (resp.autoDiscovered ? ' [найден]' : '');
         }
       } else {
         box.className = 'status err';

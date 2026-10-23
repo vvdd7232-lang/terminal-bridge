@@ -977,11 +977,17 @@ class Handler(BaseHTTPRequestHandler):
         # Защита от DNS-rebinding и чужих сайтов:
         # Host обязан быть локальным.
         self._cors_origin = 'null'  # per-request; атрибут класса здесь не годится
-        host = (self.headers.get('Host') or '').split(':')[0].strip().lower()
+        raw_host = (self.headers.get('Host') or '').strip().lower()
+        if raw_host.startswith('['):
+            host = raw_host.split(']')[0] + ']'
+        else:
+            host = raw_host.split(':')[0]
         if host not in ('127.0.0.1', 'localhost', '[::1]', '::1'):
             return False
         origin = (self.headers.get('Origin') or '').strip()
-        if not origin:
+        # Запросы без Origin или с Origin: null (расширения, прямые HTTP-клиенты, curl) разрешены
+        if not origin or origin == 'null':
+            self._cors_origin = 'null'
             return True
         try:
             o = urlparse(origin)
@@ -1055,8 +1061,10 @@ class Handler(BaseHTTPRequestHandler):
                                'tools': 0, 'config': MCP_REGISTRY.config_path,
                                'config_error': MCP_REGISTRY.load_error})
         if req_path in ('/ping', '/'):
-            self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
+            cur_port = getattr(getattr(self, 'server', None), 'server_port', None)
+            self._json({'ok': True, 'status': 'ok', 'version': VERSION, 'platform': platform.system(),
                         'cwd': os.getcwd(), 'python': sys.version.split()[0],
+                        'port': cur_port,
                         'auth_required': bool(AUTH_TOKEN),
                         'whitelist_on': WHITELIST is not None,
                         'whitelist_size': len(WHITELIST) if WHITELIST else 0,
@@ -1409,6 +1417,8 @@ def main():
         srv = QuietServer(('127.0.0.1', args.port), Handler)
     except OSError as e:
         print(f'ошибка: не могу занять порт {args.port}: {e}')
+        print(f'  [i] Попробуйте запустить на свободном порту: python server.py --port {args.port + 1}')
+        print('  [i] Либо завершите старый процесс (taskkill /F /IM python.exe или pkill -f server.py)')
         sys.exit(1)
     _log('=' * 60)
     _log(f'  TerminalBridge — powered by Marusya v{VERSION} — локальный сервер запущен')

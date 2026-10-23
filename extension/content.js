@@ -123,7 +123,7 @@
     dot.id = 'ax-server-dot';
     dot.textContent = '⚡ exec: …';
     dot.title = 'TerminalBridge — powered by Marusya: клик — проверить сервер, двойной клик — диагностика блоков';
-    dot.onclick = checkServer;
+    dot.onclick = () => { pingFails = 0; checkServer(); };
     dot.ondblclick = (e) => { e.preventDefault(); debugBlocks(true); };
     (document.body || document.documentElement).appendChild(dot);
   }
@@ -152,7 +152,7 @@
         if (pingFails < 2) return;
         d.className = 'ax-offline';
         d.textContent = '⚡ exec: offline';
-        d.title = 'Сервер недоступен: ' + ((resp && resp.error) || 'нет ответа') + '. Запустите server.py';
+        d.title = 'Сервер недоступен: ' + ((resp && resp.error) || 'нет ответа') + '. Кликните для повторной проверки или запустите server.py';
       }
     });
   }

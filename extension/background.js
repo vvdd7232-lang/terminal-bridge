@@ -162,9 +162,9 @@ async function authFetch(base, path, init) {
 // service worker. Неблокирующе: ответ не ждёт.
 getAuthToken();
 
-async function pingServer(serverUrl) {
+async function pingServer(serverUrl, timeoutMs = 4000) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 4000);
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     // Токен здесь нужен, чтобы сервер честно вернул auth_ok: без заголовка
     // /ping всегда отвечает auth_ok=false, и попап зря писал «токен не принят».
@@ -174,6 +174,78 @@ async function pingServer(serverUrl) {
   } finally {
     clearTimeout(t);
   }
+}
+
+// Интеллектуальный пинг: сначала опрашивает исходный адрес.
+// Если он не отвечает (IPv4/IPv6 localhost mismatch, занятый порт),
+// быстро сканирует локальные альтернативы (127.0.0.1 / localhost и порты 8765..8768).
+async function smartPing(inputUrl) {
+  const s = await getSettings();
+  const rawUrl = inputUrl || s.serverUrl || DEFAULTS.serverUrl;
+  const initial = normUrl(rawUrl);
+
+  const candidates = [initial];
+
+  try {
+    const u = new URL(initial);
+    const altHost = (u.hostname === '127.0.0.1') ? 'localhost' : ((u.hostname === 'localhost') ? '127.0.0.1' : null);
+    if (altHost) {
+      const uAlt = new URL(initial);
+      uAlt.hostname = altHost;
+      candidates.push(normUrl(uAlt.href));
+    }
+    const curPort = parseInt(u.port || '8765', 10);
+    const probePorts = [8765, 8766, 8767, 8768];
+    for (const p of probePorts) {
+      if (p !== curPort) {
+        const u1 = new URL(initial);
+        u1.port = String(p);
+        u1.hostname = '127.0.0.1';
+        candidates.push(normUrl(u1.href));
+        const u2 = new URL(initial);
+        u2.port = String(p);
+        u2.hostname = 'localhost';
+        candidates.push(normUrl(u2.href));
+      }
+    }
+  } catch (e) { /* ignore parse error */ }
+
+  const uniqueCandidates = [...new Set(candidates)];
+  let lastError = null;
+
+  for (let i = 0; i < uniqueCandidates.length; i++) {
+    const cand = uniqueCandidates[i];
+    try {
+      const timeoutMs = (i === 0) ? 4000 : 1200;
+      let info = await pingServer(cand, timeoutMs);
+      if (info && (info.ok || info.status === 'ok')) {
+        // Zero-touch токен, если сервер его требует
+        if (info.auth_required && info.auth_ok === false) {
+          const got = await fetchTokenFromServer(cand);
+          if (got) info = await pingServer(cand, timeoutMs);
+        }
+        const autoDiscovered = cand !== initial;
+        if (autoDiscovered) {
+          try {
+            await axStorageSet('sync', { serverUrl: cand });
+          } catch (e) { /* ignore */ }
+        }
+        return {
+          ok: true,
+          info,
+          discoveredUrl: cand,
+          autoDiscovered,
+        };
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  return {
+    ok: false,
+    error: String((lastError && lastError.message) || lastError || 'нет ответа'),
+  };
 }
 
 const activeControllers = new Map(); // runId -> AbortController
@@ -335,14 +407,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       } else if (msg.type === 'AX_PING') {
         const s = await getSettings();
         const url = msg.serverUrl || s.serverUrl;
-        let info = await pingServer(url);
-        // Сервер требует токен, а наш не подошёл — подтягиваем актуальный
-        // (zero-touch) и проверяем связь ещё раз, чтобы попап не пугал «401».
-        if (info && info.auth_required && info.auth_ok === false) {
-          const got = await fetchTokenFromServer(url);
-          if (got) info = await pingServer(url);
-        }
-        sendResponse({ ok: true, info });
+        const resp = await smartPing(url);
+        sendResponse(resp);
       } else if (msg.type === 'AX_RUN') {
         const data = await runCommand(msg.payload || {});
         sendResponse({ ok: true, result: data });
