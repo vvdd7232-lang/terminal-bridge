@@ -120,6 +120,16 @@ class McpServerClient:
                         proc.kill()
             except Exception:
                 pass
+        # Закрываем пайпы после завершения процесса. Без этого Python ругается
+        # «ResourceWarning: unclosed file» при stop_all() (видно в тестах и при
+        # выходе сервера), а на Windows дескрипторы копятся до перезапуска.
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe is None:
+                continue
+            try:
+                pipe.close()
+            except Exception:
+                pass
 
     def start(self):
         """Поднимает процесс. Повторный вызов безопасен."""
