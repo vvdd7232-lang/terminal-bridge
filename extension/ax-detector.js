@@ -190,17 +190,6 @@
     return { args };
   }
 
-  // Нормализуем «голый» Windows-путь, который остался от вырезанных кавычек:
-  // `C:\\Users` после stripStringLiterals выглядит так же, как настоящий
-  // `C:\Users`, поэтому дополнительно сверяемся с исходной строкой.
-  function isQuotedAt(raw, token) {
-    if (!raw || !token) return false;
-    const idx = String(raw).indexOf(token);
-    if (idx <= 0) return false;
-    const before = String(raw)[idx - 1];
-    return before === '"' || before === "'" || before === '`';
-  }
-
   // Системные корни и служебные каталоги: удаление/затирание внутри них —
   // всегда разрушительно. Рабочие каталоги (`/tmp/build`, `C:\build\out`)
   // сюда не попадают, иначе автопилот блокировал бы обычную уборку мусора.

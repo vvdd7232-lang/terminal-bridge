@@ -1,5 +1,5 @@
 {
-  "name": "ai-execute-extension-tests",
+  "name": "terminal-bridge-extension-tests",
   "version": "1.0.0",
   "private": true,
   "description": "Тесты detector (sniffRunner, detectRunner) и вставки картинки (view) для content-script",
@@ -16,7 +16,7 @@
     "test:features": "node features.test.js",
     "test:bridge": "node bridge.test.js",
     "test:mcp": "node mcp.test.js",
-    "test:server": "python -m unittest test_server -v",
+    "test:server": "python3 -m unittest test_server -v || python -m unittest test_server -v",
     "test:all": "npm test && npm run test:server"
   },
   "license": "MIT",
