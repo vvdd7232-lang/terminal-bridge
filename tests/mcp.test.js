@@ -176,8 +176,20 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
     /min\(timeout, 600\.0\)/.test(srvPy));
   check('__proto__ и друзья отклоняются',
     /__proto__[\s\S]{0,120}?constructor[\s\S]{0,120}?prototype/.test(srvPy));
+  // Проверяем порядок вызовов, а не расстояние в символах: раньше тест падал
+  // от любой вставки между проверкой Origin и маршрутизацией MCP, хотя
+  // инвариант («сначала Origin, потом всё остальное») не нарушался.
+  const doPostBody = srvPy.slice(srvPy.indexOf('def do_POST'),
+                                 srvPy.indexOf('def _mcp_guard', srvPy.indexOf('def do_POST')));
+  const allowedAt = doPostBody.indexOf('self._allowed()');
   check('do_POST сначала проверяет Host/Origin',
-    /def do_POST[\s\S]{0,400}?self\._allowed\(\)[\s\S]{0,400}?_mcp_post/.test(srvPy));
+    allowedAt >= 0 &&
+    allowedAt < doPostBody.indexOf('_mcp_post') &&
+    allowedAt < doPostBody.indexOf('self._check_token()'));
+  check('do_POST режет браузерный POST без JSON',
+    allowedAt >= 0 &&
+    doPostBody.indexOf('_browser_post_needs_json') > allowedAt &&
+    doPostBody.indexOf('_browser_post_needs_json') < doPostBody.indexOf('_mcp_post'));
   check('вызов требует server и tool', /нужны поля server и tool/.test(srvPy));
   check('arguments обязан быть объектом', /arguments должен быть объектом/.test(srvPy));
   check('выключенный сервер вызову не подлежит', /выключен/.test(readRoot(path.join('server', 'mcp_client.py'))));

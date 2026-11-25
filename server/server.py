@@ -692,6 +692,12 @@ def _check_whitelist(cmd):
     if _INLINE_EXEC_RE.search(c):
         return False, ('inline code execution (-c/-e/-Command/eval) is not allowed '
                        'in whitelist mode; use predefined scripts')
+    # find опасен сам по себе: -exec/-execdir/-ok/-delete исполняют и удаляют
+    # файлы вообще без shell-метасимволов, поэтому обычная проверка префиксов
+    # его пропускала («find . -exec rm {} \;» без единой пайпы).
+    if re.match(r'^find\s', c, re.IGNORECASE) and re.search(
+            r'\s-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)\b', c, re.IGNORECASE):
+        return False, 'find with -exec/-delete is not allowed in whitelist mode' 
     cl = c.lower()
     for prefix in WHITELIST:
         if cl == prefix or cl.startswith(prefix + ' '):
@@ -745,6 +751,10 @@ _SENSITIVE_PATH_PARTS = {
     '.ssh', '.gnupg', '.aws', '.azure', '.kube', '.config/gcloud',
     'id_rsa', 'id_ed25519', 'id_ecdsa', 'known_hosts', 'authorized_keys',
     '.git-credentials', '.netrc', 'shadow', 'passwd', 'sam', 'system',
+    # Сам токен доступа: он даёт право выполнять команды, поэтому отдавать
+    # его через view/чтение файлов нельзя ни при каких настройках.
+    os.path.basename(TOKEN_FILE).lower(),
+    os.path.basename(LEGACY_TOKEN_FILE).lower(),
 }
 
 
@@ -985,9 +995,22 @@ class Handler(BaseHTTPRequestHandler):
         if host not in ('127.0.0.1', 'localhost', '[::1]', '::1'):
             return False
         origin = (self.headers.get('Origin') or '').strip()
-        # Запросы без Origin или с Origin: null (расширения, прямые HTTP-клиенты, curl) разрешены
+        # Отсутствие Origin (curl, нативные клиенты) и Origin: null (fetch из
+        # Service Worker расширения) — легитимные локальные вызовы, поэтому сам
+        # запрос не режем: иначе вернётся баг 2.12.5, когда расширение уходило
+        # в offline на 403.
+        #
+        # НО CORS-разрешения такому запросу НЕ даём (см. _cors). Причина:
+        # Origin: null присылает не только расширение, но и любая песочница
+        # веб-страницы — <iframe sandbox="allow-scripts">, data:, file:.
+        # Если ответить `Access-Control-Allow-Origin: null`, эта страница
+        # прочитает /ax-token, получит AUTH_TOKEN и выполнит произвольную
+        # команду через POST /run. Без ACAO браузер не отдаёт тело ответа
+        # чужому origin'у, и атака разваливается на первом шаге.
+        # Расширению CORS не нужен: fetch из Service Worker с host_permissions
+        # на 127.0.0.1 выполняется в обход CORS.
         if not origin or origin == 'null':
-            self._cors_origin = 'null'
+            self._cors_origin = None
             return True
         try:
             o = urlparse(origin)
@@ -1016,8 +1039,15 @@ class Handler(BaseHTTPRequestHandler):
     def _cors(self):
         # Никакого `*`: Origin-проверка выше и так отсекает чужие сайты, но
         # wildcard превратился бы в дыру, если её когда-нибудь ослабят.
-        self.send_header('Access-Control-Allow-Origin', getattr(self, '_cors_origin', 'null'))
         self.send_header('Vary', 'Origin')
+        origin = getattr(self, '_cors_origin', None)
+        if not origin:
+            # Origin: null / без Origin — это локальный клиент или расширение.
+            # Access-Control-Allow-Origin здесь не отправляем: «null» в этом
+            # заголовке означал бы «любая песочница в интернете может читать
+            # ответ», то есть утечку токена и RCE (см. _allowed).
+            return
+        self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Token')
 
@@ -1073,9 +1103,31 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
 
+    def _browser_post_needs_json(self):
+        """True, если POST пришёл из браузера, но с «не-JSON» Content-Type.
+
+        Запрос из веб-страницы всегда несёт Origin, а значит подчиняется CORS.
+        Без CORS-разрешения браузер отправляет только «простые» запросы —
+        text/plain, urlencoded, multipart; именно так работают CSRF и атаки из
+        <iframe sandbox>. Расширение и curl шлют application/json, их это не
+        задевает, поэтому проверка не ломает легитимных клиентов.
+        """
+        if 'Origin' not in self.headers:
+            return False
+        ctype = (self.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+        return ctype != 'application/json'
+
     def do_POST(self):
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
+        if self._browser_post_needs_json():
+            # Браузерный запрос с «простым» Content-Type — это либо чужая
+            # страница (no-cors), либо CSRF из песочницы. json-тело require
+            # application/json заставляет браузер сначала сделать preflight,
+            # который из веба не проходит (ACAO не выдаётся).
+            return self._json({'ok': False,
+                               'error': 'unsupported media type: browser requests must '
+                                        'send Content-Type: application/json'}, 415)
         req_path = urlparse(self.path).path.rstrip('/') or '/'
         if req_path in ('/mcp/tools', '/mcp/call', '/mcp/reload', '/mcp/report'):
             return self._mcp_post(req_path)
