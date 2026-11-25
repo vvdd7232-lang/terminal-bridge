@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 🩺 Диагностика и известные проблемы
+    url: https://github.com/vvdd7232-lang/terminal-bridge/blob/main/TROUBLESHOOTING.md
+    about: Offline-бейдж, 401, пустой вывод, кодировки — начните отсюда
+  - name: 📦 Заметки о релизах
+    url: https://github.com/vvdd7232-lang/terminal-bridge/blob/main/docs/releases/README.md
+    about: Что менялось между версиями
