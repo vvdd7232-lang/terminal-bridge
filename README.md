@@ -1,5 +1,7 @@
 # ⚡ TerminalBridge — powered by Marusya
 
+[![tests](https://github.com/vvdd7232-lang/terminal-bridge/actions/workflows/tests.yml/badge.svg)](https://github.com/vvdd7232-lang/terminal-bridge/actions/workflows/tests.yml)
+
 > **Безопасное выполнение команд и скриптов из веб-чатов с ИИ на вашем ПК**
 
 **TerminalBridge** превращает обычные браузерные чаты (**ChatGPT**, **Claude**, **DeepSeek**, **Arena / LMSYS**, **Gemini**, **Grok**, **GigaChat**, **Perplexity** и др.) в полноценную среду разработки уровня Claude Code / Cursor:
@@ -61,10 +63,10 @@ python server.py
 
 - **Google Chrome / Яндекс Браузер / Microsoft Edge:**
   1. Откройте `chrome://extensions` и включите **«Режим разработчика»** в правом верхнем углу.
-  2. Распакуйте `terminal-bridge-2.12.2-chrome.zip` и нажмите **«Загрузить распакованное расширение»**.
+  2. Скачайте `terminal-bridge-<версия>-chrome.zip` из последнего релиза, распакуйте и нажмите **«Загрузить распакованное расширение»**.
 - **Mozilla Firefox:**
   1. Откройте `about:debugging#/runtime/this-firefox`.
-  2. Нажмите **«Загрузить временное дополнение…»** и выберите `terminal-bridge-2.12.2-firefox.xpi` (или `firefox-addon.xpi` в корне).
+  2. Нажмите **«Загрузить временное дополнение…»** и выберите `terminal-bridge-<версия>-firefox.xpi` из релиза (или `firefox-addon.xpi` прямо из корня репозитория).
 
 ### Шаг 3. Скопируйте системный промпт для ИИ
 
@@ -147,14 +149,26 @@ python server.py
 ## 🛠️ Разработка и тесты
 
 ```bash
-# Запуск автоматических тестов
+# JS-тесты расширения (нужен Node 20+)
 cd tests
-npm install          # Установка jsdom для тестирования DOM-интерфейса
-npm test             # Полный прогон всех 10 тестовых сьютов (сниффер, автопилот, модалки, UI)
+npm install          # jsdom для тестирования DOM-интерфейса и панели
+npm test             # все сьюты: сниффер, автопилот, модалки, UI, мост, MCP
+npm run test:server  # тесты локального сервера (Python)
 
-# Запуск тестов Python сервера
+# Тесты Python-сервера из корня репозитория
 python3 -m unittest discover tests
+
+# Проверка, что версии нигде не разъехались (то же гоняет CI)
+python3 tools/check_versions.py
 ```
+
+Версия проекта живёт в одном месте — `extension/manifest.json`. Её обязаны повторять
+`manifest.chrome.json`, `server/server.py` и `server/mcp_client.py`; рассинхрон ловит
+`tools/check_versions.py` и падает в CI. Сборка релиза — `python3 tools/build_release.py`,
+публикация — `python3 tools/publish_release.py` (см. [`tools/README.md`](tools/README.md)).
+
+История изменений по версиям — в [`docs/releases`](docs/releases/README.md), правила
+участия — в [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
