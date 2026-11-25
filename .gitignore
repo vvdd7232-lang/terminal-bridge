@@ -4,6 +4,9 @@ __pycache__/
 *.pyo
 .venv/
 
+# Логи сервера (флаг --log пишет файл рядом с запуском)
+*.log
+
 # OS
 .DS_Store
 Thumbs.db

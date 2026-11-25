@@ -1,14 +1,35 @@
 # Создание GitHub-релиза для текущего тега: использует учётные данные git,
 # уже сохранённые в системе, поэтому отдельный токен вводить не нужно.
 # Токен в вывод не попадает — он живёт только в переменной внутри процесса.
-# Заголовок релиза. Версия берётся из параметра, текст — отсюда.
+# Версия берётся из extension/manifest.json (как в build-release.ps1 и
+# verify-artifacts.ps1), чтобы тег не отставал от кода; -Tag перекрывает её.
+# Заголовок релиза берётся из первой строки заметок (docs/releases/<тег>.md),
+# а не хардкодится — раньше имя релиза оставалось от старой версии.
 param(
-    [string]$Tag = 'v2.12.2',
+    [string]$Tag,
     [string]$Repo = 'vvdd7232-lang/terminal-bridge'
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+
+# --- версия ---
+if (-not $Tag) {
+    $manifestPath = Join-Path (Join-Path $root 'extension') 'manifest.json'
+    $manifestVersion = (Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json).version
+    $Tag = "v$manifestVersion"
+}
+
+# --- заметки релиза и заголовок ---
+# Именно .NET, а не Get-Content: в Windows PowerShell 5.1 файл без BOM
+# читается как ANSI, и кириллица в заметках рассыпается в «Ð‘Ñ€Ð°Ñ€».
+$notesPath = Join-Path $root "dist\$Tag-notes.md"
+if (-not (Test-Path $notesPath)) { $notesPath = Join-Path $root "docs\releases\$Tag.md" }
+$notesText = if (Test-Path $notesPath) { [System.IO.File]::ReadAllText($notesPath, [System.Text.Encoding]::UTF8) } else { '' }
+$releaseName = if ($notesText) {
+    (($notesText -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 1) -replace '^#+\s*', ''
+} else { '' }
+if (-not $releaseName) { $releaseName = "Релиз $Tag" }
 
 # --- токен из credential helper ---
 # Ввод даём файлом с перенаправлением: PowerShell-пайп отдаёт git строки с CRLF,
@@ -23,7 +44,7 @@ if (-not $token) { throw 'Не найдены учётные данные для
 
 $headers = @{
     Authorization = "Bearer $token"
-    'User-Agent'  = 'ai-execute-runner-release'
+    'User-Agent'  = 'terminal-bridge-release'
     Accept        = 'application/vnd.github+json'
 }
 
@@ -39,23 +60,16 @@ try {
 if ($existing) {
     Write-Host "==> Релиз $Tag уже существует (id $($existing.id)) — обновляем описание" -ForegroundColor Yellow
     $releaseId = $existing.id
-    $notesPath = Join-Path $root "dist\$Tag-notes.md"
-    # Именно .NET, а не Get-Content: в Windows PowerShell 5.1 файл без BOM
-    # читается как ANSI, и кириллица в заметках рассыпается в «Ð‘Ñ€Ð°Ñ€».
-    $body = if (Test-Path $notesPath) { [System.IO.File]::ReadAllText($notesPath, [System.Text.Encoding]::UTF8) } else { $existing.body }
-    $patch = @{ name = "$Tag — Прерывание, Virtualenv и Исправление ошибок"; body = $body } | ConvertTo-Json -Depth 5
+    $body = if ($notesText) { $notesText } else { $existing.body }
+    $patch = @{ name = $releaseName; body = $body } | ConvertTo-Json -Depth 5
     Invoke-RestMethod -Method Patch -Uri "https://api.github.com/repos/$Repo/releases/$releaseId" `
         -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($patch)) | Out-Null
     Write-Host "==> Описание и имя обновлены" -ForegroundColor Green
 } else {
-    $notesPath = Join-Path $root "dist\$Tag-notes.md"
-    # Именно .NET, а не Get-Content: в Windows PowerShell 5.1 файл без BOM
-    # читается как ANSI, и кириллица в заметках рассыпается в «Ð‘Ñ€Ð°Ñ€».
-    $body = if (Test-Path $notesPath) { [System.IO.File]::ReadAllText($notesPath, [System.Text.Encoding]::UTF8) } else { "Релиз $Tag" }
+    $body = if ($notesText) { $notesText } else { "Релиз $Tag" }
     $payload = @{
         tag_name         = $Tag
-        # $Tag уже вида v2.10.0, поэтому префикс 'v' здесь лишний.
-        name             = "$Tag — Прерывание, Virtualenv и Исправление ошибок"
+        name             = $releaseName
         body             = $body
         draft            = $false
         prerelease       = $false

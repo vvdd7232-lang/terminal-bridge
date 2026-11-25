@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Build release artifacts for AI Execute Runner in dist/."""
+"""Build release artifacts for TerminalBridge in dist/."""
 
 import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import zipfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -14,6 +16,15 @@ DIST_DIR = os.path.join(ROOT, 'dist')
 
 with open(os.path.join(EXT_DIR, 'manifest.json'), 'r', encoding='utf-8') as f:
     VERSION = json.load(f)['version']
+
+# Сборка с разъехавшимися версиями — это ровно тот брак, который потом
+# невозможно отличить от нормального релиза. Поэтому проверяем до упаковки.
+print("==> Checking version consistency")
+_check = subprocess.run(
+    [sys.executable, os.path.join(ROOT, 'tools', 'check_versions.py')],
+    cwd=ROOT)
+if _check.returncode != 0:
+    sys.exit("ERROR: версии/артефакты не согласованы — сборка отменена (см. вывод выше)")
 
 print(f"==> Building release artifacts for v{VERSION}")
 

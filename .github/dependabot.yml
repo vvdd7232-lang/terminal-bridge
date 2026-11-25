@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # jsdom в tests/ — единственная внешняя зависимость проекта
+  - package-ecosystem: npm
+    directory: /tests
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(deps)
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(ci)

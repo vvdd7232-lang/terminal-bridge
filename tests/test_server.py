@@ -124,6 +124,24 @@ class TestWhitelist(unittest.TestCase):
         ok, reason = server._check_whitelist('git push')
         self.assertFalse(ok)
 
+    def test_find_delete_blocked(self):
+        # find удаляет файлы без единого shell-метасимвола — префикс «find»
+        # пропускал это в режиме, который позиционируется как read-only.
+        server.WHITELIST = frozenset({'find'})
+        ok, reason = server._check_whitelist('find . -name "*.tmp" -delete')
+        self.assertFalse(ok)
+        self.assertIn('find', reason)
+
+    def test_find_exec_blocked(self):
+        server.WHITELIST = frozenset({'find'})
+        ok, reason = server._check_whitelist('find . -type f -exec rm {} +')
+        self.assertFalse(ok)
+
+    def test_find_without_exec_allowed(self):
+        server.WHITELIST = frozenset({'find'})
+        ok, _ = server._check_whitelist('find . -name "*.py" -type f')
+        self.assertTrue(ok)
+
     def test_chain_blocked(self):
         ok, reason = server._check_whitelist('ls && rm -rf /')
         self.assertFalse(ok)
@@ -241,6 +259,116 @@ class TestCorsHeaders(unittest.TestCase):
         self.assertEqual(status, 204)
         self.assertEqual(headers.get('access-control-allow-origin'),
                          'chrome-extension://abcdefghijklmnop')
+
+
+class TestNullOriginHardening(unittest.TestCase):
+    """Origin: null — это и Service Worker расширения, и песочница любой
+    веб-страницы (<iframe sandbox>, data:, file:).
+
+    Запросы с таким Origin разрешены (иначе возвращается баг 2.12.5, когда
+    расширение уходило в offline), но CORS-разрешение не выдаётся и тело
+    обязано быть JSON. Иначе страница читает /ax-token, получает токен и
+    выполняет произвольную команду через /run — то есть RCE из веба.
+    """
+
+    TOKEN = 'test-token-null-origin'
+
+    def setUp(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        self._saved_token = server.AUTH_TOKEN
+        server.AUTH_TOKEN = self.TOKEN
+        self.srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        self.srv.daemon_threads = True
+        self._thread = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self._thread.start()
+        self.port = self.srv.server_address[1]
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+        server.AUTH_TOKEN = self._saved_token
+
+    def _req(self, method, path, body=None, headers=None, origin='null', raw_body=None):
+        import http.client
+
+        hdrs = {'Host': '127.0.0.1'}
+        if origin is not None:
+            hdrs['Origin'] = origin
+        hdrs.update(headers or {})
+        payload = raw_body if raw_body is not None else (
+            json.dumps(body) if body is not None else None)
+        conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=15)
+        conn.request(method, path, body=payload, headers=hdrs)
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        return resp.status, {k.lower(): v for k, v in resp.getheaders()}, raw
+
+    def test_token_endpoint_does_not_grant_cors_to_null_origin(self):
+        status, headers, raw = self._req('GET', '/ax-token')
+        self.assertEqual(status, 200)
+        # Само тело может содержать токен — страница всё равно не сможет его
+        # прочитать, потому что CORS-разрешения нет.
+        self.assertNotIn('access-control-allow-origin', headers)
+        self.assertNotEqual(headers.get('access-control-allow-origin'), 'null')
+        self.assertIn('vary', headers)
+
+    def test_preflight_from_null_origin_grants_nothing(self):
+        status, headers, _ = self._req('OPTIONS', '/run', headers={
+            'Access-Control-Request-Method': 'POST',
+            'Access-Control-Request-Headers': 'content-type,x-auth-token',
+        })
+        self.assertEqual(status, 204)
+        self.assertNotIn('access-control-allow-origin', headers)
+
+    def test_csrf_style_post_with_text_plain_is_rejected(self):
+        status, _, raw = self._req(
+            'POST', '/run',
+            headers={'Content-Type': 'text/plain', 'X-Auth-Token': self.TOKEN},
+            raw_body='{"runner":"shell","command":"echo pwned"}')
+        # no-cors запрос браузер может отправить только с «простым» Content-Type;
+        # такой запрос отсекаем до выполнения команды.
+        self.assertEqual(status, 415)
+        self.assertFalse(json.loads(raw.decode('utf-8'))['ok'])
+
+    def test_json_post_from_extension_still_works(self):
+        status, _, raw = self._req(
+            'POST', '/run',
+            headers={'Content-Type': 'application/json', 'X-Auth-Token': self.TOKEN},
+            body={'runner': 'shell', 'command': 'echo null-origin-ok'})
+        data = json.loads(raw.decode('utf-8'))
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get('ok'))
+        self.assertIn('null-origin-ok', data.get('stdout', ''))
+
+    def test_native_client_without_origin_and_content_type_still_works(self):
+        # curl/нативные клиенты не браузер: требование JSON к ним не применяем.
+        status, _, raw = self._req(
+            'POST', '/run', origin=None,
+            headers={'X-Auth-Token': self.TOKEN},
+            raw_body='{"runner":"shell","command":"echo native-ok"}')
+        data = json.loads(raw.decode('utf-8'))
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get('ok'))
+        self.assertIn('native-ok', data.get('stdout', ''))
+
+    def test_local_web_origin_keeps_working_cors(self):
+        # Обычный локальный дев-сервер по-прежнему получает свой Origin.
+        status, headers, _ = self._req(
+            'OPTIONS', '/run', origin='http://127.0.0.1:3000')
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get('access-control-allow-origin'),
+                         'http://127.0.0.1:3000')
+
+    def test_token_file_is_sensitive(self):
+        # Сам токен нельзя вытащить через view/чтение файлов.
+        self.assertTrue(server._is_sensitive_path(os.path.expanduser('~/.terminal-bridge.token')))
+        self.assertTrue(server._is_sensitive_path(os.path.expanduser('~/.ai-execute-runner.token')))
+        r = server._handle_view(os.path.expanduser('~/.terminal-bridge.token'))
+        self.assertFalse(r.get('ok'))
+        self.assertIn('sensitive', r.get('error', ''))
 
 
 class TestMcpEndpoints(unittest.TestCase):

@@ -1,0 +1,82 @@
+name: 🐞 Баг-репорт
+description: Что-то не работает — кнопка ▶, панель, автопилот, сервер, вставка результата
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Перед отправкой загляните в [TROUBLESHOOTING.md](../blob/main/TROUBLESHOOTING.md) —
+        там разобраны самые частые случаи (offline-бейдж, 401, пустой вывод PowerShell).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Что уже проверено
+      options:
+        - label: Сервер запущен (`python server.py`) и `/ping` отвечает в браузере
+          required: true
+        - label: Версия расширения и сервера совпадает (видно в попапе)
+          required: false
+        - label: Искал(а) похожий issue в списке
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Что произошло
+      description: Опишите поведение и что ожидали увидеть.
+      placeholder: Нажал ▶ в ChatGPT — панель висит на «running», в чат ничего не вставилось…
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. Открыть chatgpt.com
+        2. Вставить ```execute блок с `git status`
+        3. Нажать ▶
+    validations:
+      required: true
+
+  - type: input
+    id: site
+    attributes:
+      label: Сайт/чат
+      placeholder: ChatGPT, Claude, Arena, Gemini, GigaChat…
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Браузер
+      options:
+        - Chrome
+        - Яндекс Браузер
+        - Microsoft Edge
+        - Firefox
+        - Другой (укажите в описании)
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Версии
+      description: Версия расширения (попап), версия сервера (`/ping`), ОС и Python.
+      placeholder: ext 2.12.5 · server 2.12.5 · Windows 11 · Python 3.12
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Вывод и логи
+      description: |
+        Полезнее всего: строка `[LOCAL EXEC RESULT] …` из чата, вывод консоли сервера,
+        ошибки из DevTools расширения. **Токены и пути к личным папкам вырежьте.**
+      render: text
+    validations:
+      required: false

@@ -33,8 +33,8 @@ function Get-EntryText($zipPath, $name) {
 }
 
 $targets = @(
-    (Join-Path $dist "ai-execute-runner-$Version-firefox.xpi"),
-    (Join-Path $dist "ai-execute-runner-$Version-chrome.zip"),
+    (Join-Path $dist "terminal-bridge-$Version-firefox.xpi"),
+    (Join-Path $dist "terminal-bridge-$Version-chrome.zip"),
     (Join-Path $root 'firefox-addon.xpi')
 )
 function Get-Entries($zipPath) {
@@ -64,7 +64,7 @@ if ($slashProblems.Count) {
     throw "обратные слэши в путях записей (ZIP требует прямой '/'): $($slashProblems -join ', ')"
 }
 
-$serverZip = Join-Path $dist "ai-execute-runner-$Version-server.zip"
+$serverZip = Join-Path $dist "terminal-bridge-$Version-server.zip"
 $serverTxt = Get-EntryText $serverZip 'server.py'
 # Имя НЕ $ver: в PowerShell имена регистронезависимы, поэтому $ver — это тот же
 # самый $Version, и сверка «найденная == ожидаемая» всегда была бы верной.

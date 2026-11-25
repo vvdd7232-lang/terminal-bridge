@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish GitHub Release for AI Execute Runner."""
+"""Publish GitHub Release for TerminalBridge."""
 
 import json
 import os
@@ -30,7 +30,7 @@ def get_token():
 
 def api_request(url, method='GET', data=None, headers=None, token=None):
     req_headers = {
-        'User-Agent': 'ai-execute-runner-publisher',
+        'User-Agent': 'terminal-bridge-publisher',
         'Accept': 'application/vnd.github+json',
     }
     if token:

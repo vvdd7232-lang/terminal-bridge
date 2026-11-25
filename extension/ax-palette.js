@@ -269,16 +269,6 @@
   }
 
   // --- действия -------------------------------------------------------------
-  function currentCustomOrItem() {
-    const value = String(overlay.$('.ax-palette-input').value || '').trim();
-    const row = overlay.$('.ax-palette-list').querySelector('.ax-palette-item.on');
-    const hasCustom = !!(row && row.classList.contains('ax-palette-custom'));
-    if (hasCustom) return { cmd: value, runner: AX.settings.defaultRunner || 'shell', pinned: false, t: 0, custom: true };
-    if (items[cursor]) return items[cursor];
-    if (value) return { cmd: value, runner: AX.settings.defaultRunner || 'shell', pinned: false, t: 0, custom: true };
-    return null;
-  }
-
   function execute(item, skipConfirm) {
     if (!item || !item.cmd) return;
     // В команде был секрет — в журнале он заменён на «скрыто». Запускать такой

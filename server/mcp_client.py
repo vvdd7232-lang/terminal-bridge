@@ -1,4 +1,4 @@
-"""MCP-клиент для AI Execute Runner (экспериментальная функция).
+"""MCP-клиент для TerminalBridge (экспериментальная функция).
 
 Зачем он здесь
 --------------
@@ -118,6 +118,16 @@ class McpServerClient:
                         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                     except Exception:
                         proc.kill()
+            except Exception:
+                pass
+        # Закрываем пайпы после завершения процесса. Без этого Python ругается
+        # «ResourceWarning: unclosed file» при stop_all() (видно в тестах и при
+        # выходе сервера), а на Windows дескрипторы копятся до перезапуска.
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe is None:
+                continue
+            try:
+                pipe.close()
             except Exception:
                 pass
 

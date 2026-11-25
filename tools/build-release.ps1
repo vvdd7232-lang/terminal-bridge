@@ -1,4 +1,4 @@
-﻿# Сборка артефактов релиза: dist/ai-execute-runner-<версия>-{chrome.zip,firefox.xpi,server.zip}
+﻿# Сборка артефактов релиза: dist/terminal-bridge-<версия>-{chrome.zip,firefox.xpi,server.zip}
 #
 # Зачем скрипт: раньше dist/ собирался вручную, из-за чего в артефакты уезжали
 # уже исправленные и неисправленные версии вперемешку (например, баг с
@@ -133,7 +133,7 @@ function Write-ZipWithForwardSlashes($zipPath) {
 }
 
 # --- Chrome/Edge: manifest.chrome.json -> manifest.json ---
-Write-Step "Chrome/Edge: ai-execute-runner-$Version-chrome.zip"
+Write-Step "Chrome/Edge: terminal-bridge-$Version-chrome.zip"
 $chromeStage = Join-Path ([System.IO.Path]::GetTempPath()) ("axchrome-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $chromeStage | Out-Null
 try {
@@ -142,7 +142,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $extDir 'manifest.chrome.json') -Destination (Join-Path $chromeStage 'manifest.json') -Force
     Remove-Item -LiteralPath (Join-Path $chromeStage 'manifest.chrome.json') -Force
-    $chromeZip = Join-Path $distDir "ai-execute-runner-$Version-chrome.zip"
+    $chromeZip = Join-Path $distDir "terminal-bridge-$Version-chrome.zip"
     [System.IO.Compression.ZipFile]::CreateFromDirectory(
         $chromeStage, $chromeZip,
         [System.IO.Compression.CompressionLevel]::Optimal, $false)
@@ -152,8 +152,8 @@ try {
 }
 
 # --- Firefox: manifest.json как есть ---
-Write-Step "Firefox: ai-execute-runner-$Version-firefox.xpi"
-$firefoxXpi = Join-Path $distDir "ai-execute-runner-$Version-firefox.xpi"
+Write-Step "Firefox: terminal-bridge-$Version-firefox.xpi"
+$firefoxXpi = Join-Path $distDir "terminal-bridge-$Version-firefox.xpi"
 New-ZipFromDir $extDir $firefoxXpi $false
 
 # --- firefox-addon.xpi в корне репозитория ---
@@ -166,8 +166,8 @@ Write-Step "Firefox (корень, для установки без распак
 Copy-Item -LiteralPath $firefoxXpi -Destination $rootXpi -Force
 
 # --- сервер: папка server внутри архива ---
-Write-Step "Сервер: ai-execute-runner-$Version-server.zip"
-New-ZipFromDir $serverDir (Join-Path $distDir "ai-execute-runner-$Version-server.zip") $true
+Write-Step "Сервер: terminal-bridge-$Version-server.zip"
+New-ZipFromDir $serverDir (Join-Path $distDir "terminal-bridge-$Version-server.zip") $true
 
 Write-Step 'Готово:'
 Get-ChildItem -LiteralPath $distDir | ForEach-Object {
